@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -154,7 +155,15 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-zinc-50 dark:bg-black">
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-zinc-50 dark:bg-black">
+      <Image
+        src="/GST_Logo.png"
+        alt="Gospel Share Tracker"
+        width={337}
+        height={75}
+        className="w-full max-w-md mb-6 h-auto"
+        priority
+      />
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>{mode === "login" ? "Log in" : "Create account"}</CardTitle>
