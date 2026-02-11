@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,7 @@ type AuthMode = "login" | "signup" | "forgot" | "reset";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [mode, setMode] = useState<AuthMode>("login");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -26,19 +27,28 @@ export default function LoginPage() {
 
   const normalizeName = (name: string) => name.trim().replace(/\s+/g, " ");
 
-  // Check for recovery token and get user email
+  // Check for recovery mode AND try to get user email
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get("type") === "recovery") {
+    const type = searchParams.get("type");
+    if (type === "recovery") {
       setMode("reset");
-      // Try to get the user's email from their session
-      supabase.auth.getUser().then(({ data: { user } }) => {
+      
+      // Wait a moment for Supabase to restore session from URL hash
+      setTimeout(async () => {
+        // Try to get user from Supabase session
+        const { data: { user } } = await supabase.auth.getUser();
         if (user?.email) {
           setEmail(user.email);
         }
-      });
+      }, 100);
     }
-  }, []);
+    
+    // Also check if email is passed directly in URL
+    const emailParam = searchParams.get("email");
+    if (emailParam) {
+      setEmail(decodeURIComponent(emailParam));
+    }
+  }, [searchParams]);
 
   const handleAuth = async () => {
     setMessage(null);
