@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, ArrowLeft, Mail } from "lucide-react";
+import { Eye, EyeOff, ArrowLeft } from "lucide-react";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset";
 
@@ -197,14 +197,17 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-zinc-50 dark:bg-black">
-      <Image
-        src="/GST_Logo.png"
-        alt="Gospel Share Tracker"
-        width={337}
-        height={75}
-        className="w-full max-w-md mb-6 h-auto"
-        priority
-      />
+      {/* Logo */}
+      <div className="mb-6">
+        <Image
+          src="/GST_Logo.png"
+          alt="Gospel Share Tracker"
+          width={337}
+          height={75}
+          priority
+        />
+      </div>
+      
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>
@@ -273,7 +276,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   tabIndex={-1}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -298,7 +301,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   tabIndex={-1}
                 >
                   {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -357,5 +360,3 @@ export default function LoginPage() {
     </div>
   );
 }
-
-
