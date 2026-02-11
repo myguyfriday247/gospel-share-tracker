@@ -26,11 +26,17 @@ export default function LoginPage() {
 
   const normalizeName = (name: string) => name.trim().replace(/\s+/g, " ");
 
-  // Check for recovery token in URL on mount
+  // Check for recovery token and get user email
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get("type") === "recovery") {
       setMode("reset");
+      // Try to get the user's email from their session
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user?.email) {
+          setEmail(user.email);
+        }
+      });
     }
   }, []);
 
@@ -197,13 +203,11 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Email field */}
-          {mode !== "reset" && (
-            <div className="space-y-2">
-              <Label>Email</Label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="email" placeholder="you@example.com" />
-            </div>
-          )}
+          {/* Email field - ALWAYS show this field */}
+          <div className="space-y-2">
+            <Label>Email</Label>
+            <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="email" placeholder="you@example.com" />
+          </div>
 
           {/* Password field */}
           {(mode === "login" || mode === "signup" || mode === "reset") && (
