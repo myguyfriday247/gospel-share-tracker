@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, ChevronLeft } from "lucide-react";
+import { Eye, EyeOff, ChevronLeft, Loader2 } from "lucide-react";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset";
 
@@ -24,33 +24,38 @@ export default function LoginPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(false);
 
   const normalizeName = (name: string) => name.trim().replace(/\s+/g, " ");
 
-  // Listen for Supabase auth state changes
+  // Listen for Supabase auth state changes and initialize reset mode
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "PASSWORD_RECOVERY" && session?.user) {
+    const initAuth = async () => {
+      const type = searchParams.get("type");
+      if (type === "recovery") {
         setMode("reset");
-        setEmail(session.user.email || "");
+        setInitializing(true);
+        
+        // Listen for PASSWORD_RECOVERY event
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+          if (event === "PASSWORD_RECOVERY" && session?.user) {
+            setEmail(session.user.email || "");
+          }
+          setInitializing(false);
+        });
+        
+        // Also try to get user directly
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.email) {
+          setEmail(user.email);
+          setInitializing(false);
+        }
+        
+        return () => subscription.unsubscribe();
       }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  // Also check URL params on mount
-  useEffect(() => {
-    const type = searchParams.get("type");
-    if (type === "recovery" || type === "recovery") {
-      setMode("reset");
-    }
+    };
     
-    // Also check if email is passed directly in URL
-    const emailParam = searchParams.get("email");
-    if (emailParam) {
-      setEmail(decodeURIComponent(emailParam));
-    }
+    initAuth();
   }, [searchParams]);
 
   const handleAuth = async () => {
@@ -178,6 +183,25 @@ export default function LoginPage() {
     router.push("/dashboard");
   };
 
+  // Show loading while initializing
+  if (initializing && mode === "reset") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-zinc-50 dark:bg-black">
+        <div className="mb-6">
+          <Image src="/GST_Logo.png" alt="Gospel Share Tracker" width={337} height={75} priority />
+        </div>
+        <Card className="w-full max-w-md">
+          <CardContent className="py-12">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <p className="text-muted-foreground">Preparing password reset...</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-zinc-50 dark:bg-black">
       {/* Logo */}
@@ -216,11 +240,13 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Email field - ALWAYS show this field */}
-          <div className="space-y-2">
-            <Label>Email</Label>
-            <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="email" placeholder="you@example.com" />
-          </div>
+          {/* Email field - hidden during reset if email is populated */}
+          {mode !== "reset" && (
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="email" placeholder="you@example.com" />
+            </div>
+          )}
 
           {/* Password field */}
           {(mode === "login" || mode === "signup" || mode === "reset") && (
