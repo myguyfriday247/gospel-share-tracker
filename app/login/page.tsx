@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { Eye, EyeOff, ChevronLeft } from "lucide-react";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset";
 
@@ -222,13 +222,14 @@ export default function LoginPage() {
           {/* Back to login (shown on forgot/reset) */}
           {(mode === "forgot" || mode === "reset") && (
             <button
+              type="button"
               className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mb-2"
               onClick={() => {
                 setMode("login");
                 setMessage(null);
               }}
             >
-              <ArrowLeft className="h-4 w-4" /> Back to login
+              <ChevronLeft className="h-4 w-4" /> Back to login
             </button>
           )}
 
@@ -313,6 +314,7 @@ export default function LoginPage() {
           {/* Forgot password link (login only) */}
           {mode === "login" && (
             <button
+              type="button"
               className="text-sm text-muted-foreground hover:text-foreground block w-full text-right"
               onClick={() => {
                 setMode("forgot");
@@ -339,6 +341,7 @@ export default function LoginPage() {
           {/* Toggle login/signup */}
           {mode !== "forgot" && mode !== "reset" && (
             <button
+              type="button"
               className="text-sm underline text-muted-foreground block w-full text-center"
               onClick={() => {
                 setMode(mode === "login" ? "signup" : "login");
