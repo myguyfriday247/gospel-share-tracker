@@ -27,20 +27,23 @@ export default function LoginPage() {
 
   const normalizeName = (name: string) => name.trim().replace(/\s+/g, " ");
 
-  // Check for recovery mode AND try to get user email
+  // Listen for Supabase auth state changes
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "PASSWORD_RECOVERY" && session?.user) {
+        setMode("reset");
+        setEmail(session.user.email || "");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Also check URL params on mount
   useEffect(() => {
     const type = searchParams.get("type");
-    if (type === "recovery") {
+    if (type === "recovery" || type === "recovery") {
       setMode("reset");
-      
-      // Wait a moment for Supabase to restore session from URL hash
-      setTimeout(async () => {
-        // Try to get user from Supabase session
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user?.email) {
-          setEmail(user.email);
-        }
-      }, 100);
     }
     
     // Also check if email is passed directly in URL
