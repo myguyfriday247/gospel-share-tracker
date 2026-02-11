@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -12,7 +12,7 @@ import { Eye, EyeOff, ChevronLeft, Loader2 } from "lucide-react";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [mode, setMode] = useState<AuthMode>("login");
@@ -186,22 +186,137 @@ export default function LoginPage() {
   // Show loading while initializing
   if (initializing && mode === "reset") {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-zinc-50 dark:bg-black">
-        <div className="mb-6">
-          <Image src="/GST_Logo.png" alt="Gospel Share Tracker" width={337} height={75} priority />
-        </div>
-        <Card className="w-full max-w-md">
-          <CardContent className="py-12">
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              <p className="text-muted-foreground">Preparing password reset...</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="w-full max-w-md">
+        <CardContent className="py-12">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <p className="text-muted-foreground">Preparing password reset...</p>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
+  return (
+    <Card className="w-full max-w-md">
+      <CardHeader>
+        <CardTitle>
+          {mode === "login" && "Log in"}
+          {mode === "signup" && "Create account"}
+          {mode === "forgot" && "Reset password"}
+          {mode === "reset" && "New password"}
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {/* Back to login */}
+        {(mode === "forgot" || mode === "reset") && (
+          <button
+            type="button"
+            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mb-2"
+            onClick={() => { setMode("login"); setMessage(null); }}
+          >
+            <ChevronLeft className="h-4 w-4" /> Back to login
+          </button>
+        )}
+
+        {/* Name field (signup only) */}
+        {mode === "signup" && (
+          <div className="space-y-2">
+            <Label>Full Name</Label>
+            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="First Last" autoComplete="name" />
+            <p className="text-xs text-muted-foreground">Please enter both your first and last name.</p>
+          </div>
+        )}
+
+        {/* Email field - hidden during reset if email is populated */}
+        {mode !== "reset" && (
+          <div className="space-y-2">
+            <Label>Email</Label>
+            <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="email" placeholder="you@example.com" />
+          </div>
+        )}
+
+        {/* Password field */}
+        {(mode === "login" || mode === "signup" || mode === "reset") && (
+          <div className="space-y-2">
+            <Label>{mode === "reset" ? "New Password" : "Password"}</Label>
+            <div className="relative">
+              <Input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete={mode === "signup" || mode === "reset" ? "new-password" : "current-password"}
+                placeholder="At least 8 characters"
+                className="pr-10"
+              />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" tabIndex={-1}>
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Confirm password */}
+        {(mode === "signup" || mode === "reset") && (
+          <div className="space-y-2">
+            <Label>Confirm Password</Label>
+            <div className="relative">
+              <Input
+                type={showConfirmPassword ? "text" : "password"}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder="Confirm your password"
+                className="pr-10"
+              />
+              <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" tabIndex={-1}>
+                {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Forgot password link */}
+        {mode === "login" && (
+          <button type="button" className="text-sm text-muted-foreground hover:text-foreground block w-full text-right" onClick={() => { setMode("forgot"); setMessage(null); }}>
+            Forgot your password?
+          </button>
+        )}
+
+        {/* Submit button */}
+        <Button className="w-full" onClick={handleAuth} disabled={loading}>
+          {loading ? "Please wait…" : mode === "login" ? "Log in" : mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : "Update password"}
+        </Button>
+
+        {/* Toggle login/signup */}
+        {mode !== "forgot" && mode !== "reset" && (
+          <button type="button" className="text-sm underline text-muted-foreground block w-full text-center" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setMessage(null); }}>
+            {mode === "login" ? "Need an account? Sign up" : "Already have an account? Log in"}
+          </button>
+        )}
+
+        {/* Message */}
+        {message && <p className={`text-sm text-center ${message.includes("Check your email") ? "text-green-600" : ""}`}>{message}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LoadingFallback() {
+  return (
+    <Card className="w-full max-w-md">
+      <CardContent className="py-12">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function LoginPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-zinc-50 dark:bg-black">
       {/* Logo */}
@@ -209,108 +324,9 @@ export default function LoginPage() {
         <Image src="/GST_Logo.png" alt="Gospel Share Tracker" width={337} height={75} priority />
       </div>
       
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>
-            {mode === "login" && "Log in"}
-            {mode === "signup" && "Create account"}
-            {mode === "forgot" && "Reset password"}
-            {mode === "reset" && "New password"}
-          </CardTitle>
-        </CardHeader>
-
-        <CardContent className="space-y-4">
-          {/* Back to login */}
-          {(mode === "forgot" || mode === "reset") && (
-            <button
-              type="button"
-              className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mb-2"
-              onClick={() => { setMode("login"); setMessage(null); }}
-            >
-              <ChevronLeft className="h-4 w-4" /> Back to login
-            </button>
-          )}
-
-          {/* Name field (signup only) */}
-          {mode === "signup" && (
-            <div className="space-y-2">
-              <Label>Full Name</Label>
-              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="First Last" autoComplete="name" />
-              <p className="text-xs text-muted-foreground">Please enter both your first and last name.</p>
-            </div>
-          )}
-
-          {/* Email field - hidden during reset if email is populated */}
-          {mode !== "reset" && (
-            <div className="space-y-2">
-              <Label>Email</Label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="email" placeholder="you@example.com" />
-            </div>
-          )}
-
-          {/* Password field */}
-          {(mode === "login" || mode === "signup" || mode === "reset") && (
-            <div className="space-y-2">
-              <Label>{mode === "reset" ? "New Password" : "Password"}</Label>
-              <div className="relative">
-                <Input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete={mode === "signup" || mode === "reset" ? "new-password" : "current-password"}
-                  placeholder="At least 8 characters"
-                  className="pr-10"
-                />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" tabIndex={-1}>
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Confirm password */}
-          {(mode === "signup" || mode === "reset") && (
-            <div className="space-y-2">
-              <Label>Confirm Password</Label>
-              <div className="relative">
-                <Input
-                  type={showConfirmPassword ? "text" : "password"}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  autoComplete="new-password"
-                  placeholder="Confirm your password"
-                  className="pr-10"
-                />
-                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" tabIndex={-1}>
-                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Forgot password link */}
-          {mode === "login" && (
-            <button type="button" className="text-sm text-muted-foreground hover:text-foreground block w-full text-right" onClick={() => { setMode("forgot"); setMessage(null); }}>
-              Forgot your password?
-            </button>
-          )}
-
-          {/* Submit button */}
-          <Button className="w-full" onClick={handleAuth} disabled={loading}>
-            {loading ? "Please wait…" : mode === "login" ? "Log in" : mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : "Update password"}
-          </Button>
-
-          {/* Toggle login/signup */}
-          {mode !== "forgot" && mode !== "reset" && (
-            <button type="button" className="text-sm underline text-muted-foreground block w-full text-center" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setMessage(null); }}>
-              {mode === "login" ? "Need an account? Sign up" : "Already have an account? Log in"}
-            </button>
-          )}
-
-          {/* Message */}
-          {message && <p className={`text-sm text-center ${message.includes("Check your email") ? "text-green-600" : ""}`}>{message}</p>}
-        </CardContent>
-      </Card>
+      <Suspense fallback={<LoadingFallback />}>
+        <LoginForm />
+      </Suspense>
     </div>
   );
 }
