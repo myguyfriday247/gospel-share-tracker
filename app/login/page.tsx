@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useSearchParams as useNextSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +12,16 @@ import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, ChevronLeft } from "lucide-react";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset";
+
+function useSearchParams() {
+  return { get: (key: string) => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get(key);
+    }
+    return null;
+  }};
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -31,7 +42,7 @@ export default function LoginPage() {
 
   // Check for recovery token in URL (password reset flow)
   useEffect(() => {
-    if (searchParams?.get("type") === "recovery") {
+    if (searchParams.get("type") === "recovery") {
       setMode("reset");
     }
   }, [searchParams]);
@@ -139,7 +150,7 @@ export default function LoginPage() {
     if (mode === "forgot") {
       setLoading(true);
       const { error } = await supabase.auth.resetPasswordForEmail(e, {
-        redirectTo: `${window.location.origin}/login?type=recovery`,
+        redirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/login?type=recovery`,
       });
       setLoading(false);
 
