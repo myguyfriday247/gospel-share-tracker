@@ -109,9 +109,27 @@ function LoginForm() {
       setLoading(false);
 
       if (error) {
-        setMessage(error.message === "Database error saving new user" 
-          ? "Signup failed. Make sure your name is unique." 
-          : error.message);
+        // Check if email already exists in auth (partial signup or abandoned account)
+        if (error.message.includes('already exists') || error.message.includes('already registered')) {
+          // User already has an auth account - try to log them in with the password they just entered
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: e,
+            password: p,
+          });
+
+          if (signInError) {
+            // Wrong password - they need to reset
+            setMessage('An account with this email already exists. Use "Forgot your password" to reset it.');
+          } else {
+            // Successfully logged in - redirect to dashboard
+            setLoading(false);
+            router.push('/dashboard');
+            return;
+          }
+        } else {
+          setMessage(error.message);
+        }
+        setLoading(false);
         return;
       }
 
