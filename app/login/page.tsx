@@ -96,7 +96,9 @@ function LoginForm() {
       );
 
       if (availErr || available === false) {
-        setMessage(availErr ? "Could not validate your name." : "That full name is already in use.");
+        // Name is taken - user likely already has an account, switch to forgot password
+        setMessage(null);
+        setMode('forgot');
         return;
       }
 
@@ -109,8 +111,22 @@ function LoginForm() {
       setLoading(false);
 
       if (error) {
+        console.error('Signup error:', error.message);
         // Check if email already exists in auth (partial signup or abandoned account)
-        if (error.message.includes('already exists') || error.message.includes('already registered')) {
+        // Supabase can return various phrasings for this error
+        const emailExistsPatterns = [
+          'already exists',
+          'already registered',
+          'already been taken',
+          'email address is already',
+          'user already',
+          'invalid email',  // sometimes confused
+        ];
+        const isEmailConflict = emailExistsPatterns.some(p => 
+          error.message.toLowerCase().includes(p.toLowerCase())
+        );
+        
+        if (isEmailConflict) {
           // User already has an auth account - try to log them in with the password they just entered
           const { error: signInError } = await supabase.auth.signInWithPassword({
             email: e,
@@ -118,8 +134,10 @@ function LoginForm() {
           });
 
           if (signInError) {
-            // Wrong password - they need to reset
-            setMessage('An account with this email already exists. Use "Forgot your password" to reset it.');
+            // Wrong password or account locked - switch to forgot password mode
+            setMessage(null);
+            setMode('forgot');
+            return;
           } else {
             // Successfully logged in - redirect to dashboard
             setLoading(false);
