@@ -8,6 +8,11 @@ Run these migrations in order in your Supabase SQL Editor:
 2. `002_add_person_id_to_entries.sql` - Adds person_id to gospel_share_entries
 3. `003_create_signup_triggers.sql` - Creates triggers for signup flow
 4. `004_backfill_existing_data.sql` - Links existing data to people
+5. `005_display_name_available.sql` - Creates the `display_name_available` RPC function used by signup
+
+This folder is the single source of truth for schema history — a duplicate root-level
+`migrations/` folder (holding only what's now 005) existed until this was reconciled; don't
+recreate it.
 
 ## Migration Status
 
@@ -17,6 +22,15 @@ Run these migrations in order in your Supabase SQL Editor:
 | 002 | Ready | Adds `person_id` FK to entries |
 | 003 | Ready | Creates signup triggers |
 | 004 | Ready | Backfills existing data |
+| 005 | Unverified — see below | Creates `display_name_available` RPC function |
+
+**2026-08-17:** Project `xomgejazpgwvadmglwtd` (this project) currently fails to resolve at DNS —
+confirmed via three independent resolvers (system, 1.1.1.1, Cloudflare DoH), all NXDOMAIN — and a
+same-origin `fetch()` from the live `gst.reimagechurch.com` app to it also failed. This means
+migration status can't be verified against the live database right now, and more importantly,
+**login/signup on the live app may currently be broken for real users** (the page renders fine
+since Supabase isn't contacted until form submit, but the RPC/auth calls behind it can't reach the
+project). Check the Supabase dashboard for this project's status before doing anything else here.
 
 ## Running Migrations
 

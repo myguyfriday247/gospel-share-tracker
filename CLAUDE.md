@@ -4,6 +4,12 @@ Personal-evangelism tracking app. Users log gospel-sharing encounters (invites, 
 story shares, gospel presentations); admins see community-wide analytics. **Live beta with real
 users** — treat schema/RLS changes and deploys with caution.
 
+> **⚠️ 2026-08-17: the Supabase project may be down.** `xomgejazpgwvadmglwtd.supabase.co` fails to
+> resolve at DNS (confirmed via three independent resolvers) and a same-origin `fetch()` from the
+> live app also failed. The app's static pages still render, but login/signup likely can't reach
+> the database right now. Check the Supabase dashboard before assuming any DB-dependent feature
+> works. See `supabase/README.md` for the full finding.
+
 ## Stack
 - **Framework:** Next.js 16 (App Router), React 19, TypeScript
 - **Database:** Supabase (PostgreSQL) + Supabase Auth, project ref `xomgejazpgwvadmglwtd`
@@ -36,10 +42,6 @@ codebase, likely leftover from an unbuilt email feature. Harmless to ignore.
   `gospel_response`, `number_response`, `notes`, `created_at`
 
 ## Known technical debt (see `CODE_REVIEW.md` for original notes)
-- **Two migration locations**: `supabase/migrations/` (001–004, the real history) and a stray
-  root-level `migrations/` folder with one more-recent file
-  (`2026-02-09-display-name-available.sql`) that was never consolidated in. Reconcile these before
-  making further schema changes — don't add a third location.
 - `EntryRecord.tsx` has an inline `EditEntryFormContent` component that duplicates edit-form logic
   — candidate for extraction, not yet done.
 - Error handling is inconsistent — some flows use `alert()`, others inline error messages.
@@ -57,5 +59,6 @@ This app is **live with real users** — schema and RLS changes go against a pro
 with no separate staging environment set up yet. Before running any migration:
 1. Confirm the target: Supabase dashboard → SQL Editor, project `xomgejazpgwvadmglwtd`.
 2. Write idempotent SQL (`DROP ... IF EXISTS`, `CREATE TABLE IF NOT EXISTS`).
-3. Add the migration file to `supabase/migrations/` (not the stray root `migrations/` folder).
+3. Add the migration file to `supabase/migrations/` — the single source of truth (a duplicate
+   root-level `migrations/` folder existed until 2026-08-17; don't recreate it).
 4. Confirm with Chris before running anything destructive or altering RLS policies.
