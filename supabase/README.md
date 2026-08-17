@@ -22,15 +22,14 @@ recreate it.
 | 002 | Ready | Adds `person_id` FK to entries |
 | 003 | Ready | Creates signup triggers |
 | 004 | Ready | Backfills existing data |
-| 005 | Unverified — see below | Creates `display_name_available` RPC function |
+| 005 | Confirmed live | Creates `display_name_available` RPC function |
 
-**2026-08-17:** Project `xomgejazpgwvadmglwtd` (this project) currently fails to resolve at DNS —
-confirmed via three independent resolvers (system, 1.1.1.1, Cloudflare DoH), all NXDOMAIN — and a
-same-origin `fetch()` from the live `gst.reimagechurch.com` app to it also failed. This means
-migration status can't be verified against the live database right now, and more importantly,
-**login/signup on the live app may currently be broken for real users** (the page renders fine
-since Supabase isn't contacted until form submit, but the RPC/auth calls behind it can't reach the
-project). Check the Supabase dashboard for this project's status before doing anything else here.
+**2026-08-17:** Verified directly against the live project — the `people` table is reachable and
+`display_name_available` returns correctly, so migration 005 is confirmed applied. (Earlier the
+same day, DNS briefly failed to resolve for this project across three resolvers; it recovered on
+its own — likely a transient pause/wake blip. No action needed, but if it recurs, check the
+[Supabase dashboard](https://supabase.com/dashboard/project/xomgejazpgwvadmglwtd) before assuming
+the app itself is broken.)
 
 ## Running Migrations
 

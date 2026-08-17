@@ -4,11 +4,12 @@ Personal-evangelism tracking app. Users log gospel-sharing encounters (invites, 
 story shares, gospel presentations); admins see community-wide analytics. **Live beta with real
 users** — treat schema/RLS changes and deploys with caution.
 
-> **⚠️ 2026-08-17: the Supabase project may be down.** `xomgejazpgwvadmglwtd.supabase.co` fails to
-> resolve at DNS (confirmed via three independent resolvers) and a same-origin `fetch()` from the
-> live app also failed. The app's static pages still render, but login/signup likely can't reach
-> the database right now. Check the Supabase dashboard before assuming any DB-dependent feature
-> works. See `supabase/README.md` for the full finding.
+> **2026-08-17:** the Supabase project briefly failed to resolve at DNS (confirmed via three
+> resolvers) — likely a transient pause/wake blip. Confirmed back up the same day: DNS resolves,
+> the `people` table is reachable, and `display_name_available` (migration 005) is live and
+> working. No action needed, but if this recurs, check the
+> [Supabase dashboard](https://supabase.com/dashboard/project/xomgejazpgwvadmglwtd) for project
+> status before assuming the app itself is broken.
 
 ## Stack
 - **Framework:** Next.js 16 (App Router), React 19, TypeScript
