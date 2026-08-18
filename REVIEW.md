@@ -31,12 +31,30 @@ Findings marked **[inferred]** are read from code and still need confirmation.
 | 9 | Dashboard totals/chart go stale | **Fixed** |
 | 10 | Race creating duplicate person rows | **Fixed** |
 | 11 | Errors discarded | **Fixed** — all pages; the 10 `alert()`s are gone |
-| 12–14 | Schema drift, dual key, stale types | **Open** |
+| 12–14 | Schema drift, dual key, stale types | **Partial** — types now match the live table; the five extra columns turned out to be GENERATED (see below); `user_id` confirmed dead (0/674); baseline migration still to do |
 | 15–18 | Efficiency | **Partial** — #15, #16, #17 done; #18 (browser-side aggregation) still open |
 | P4 | Maintainability | **Partial** — all `any` types gone; portal still 700+ lines |
 
 A related bug found while fixing #6: `ShareForm` defaulted its date from `toISOString()` (UTC), so
 after ~8pm Eastern it pre-filled *tomorrow* and silently misdated evening entries. Also fixed.
+
+### The five "undocumented" columns are GENERATED, not abandoned **[verified]**
+
+`invites_reached`, `conversations_reached`, `story_share_reached`, `gospel_share_reached` and
+`responses_count` are `GENERATED ALWAYS` columns — Postgres derives each from the raw fields
+(e.g. `gospel_share_reached = CASE WHEN gospel_presentation THEN number_reached ELSE 0 END`).
+They cannot be written and cannot drift. They appear in no migration, which is why they looked
+like orphans.
+
+I initially recorded them as unused and then as inconsistent; both were wrong. The apparent
+"gospel 2870 vs 2868" gap came from misreading a number off a screenshot rather than querying —
+SQL confirms stored and computed are both 2870, with zero mismatched rows.
+
+`user_id` is separately confirmed dead: 0 of 674 rows populated.
+
+Practical consequence: the admin dashboard recomputes these figures in the browser from raw
+rows. Selecting the generated columns instead pushes that work to the database and is the
+natural first step for #18.
 
 ### Finding #0 — entry editing is broken in production **[verified]**
 

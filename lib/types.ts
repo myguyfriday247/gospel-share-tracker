@@ -51,16 +51,21 @@ export interface Entry {
   user_id?: string | null;
 
   /**
-   * Per-share-type totals, populated on all 674 rows — NOT abandoned, despite appearing in no
-   * migration and no application code. Their sums line up with what the admin dashboard
-   * computes from `number_reached` + the boolean flags:
+   * GENERATED ALWAYS columns — Postgres computes each from the fields above, so they cannot be
+   * inserted, updated, or drift:
    *
-   *   invites 749 = 749 · conversations 2864 = 2864 · story 891 = 891 · responses 414 = 414
-   *   gospel  2870 ≠ 2868  ← the stored column and the computed value disagree by 2
+   *   invites_reached       = CASE WHEN church_invite          THEN number_reached ELSE 0 END
+   *   conversations_reached = CASE WHEN spiritual_conversation THEN number_reached ELSE 0 END
+   *   story_share_reached   = CASE WHEN story_share            THEN number_reached ELSE 0 END
+   *   gospel_share_reached  = CASE WHEN gospel_presentation    THEN number_reached ELSE 0 END
+   *   responses_count       = CASE WHEN gospel_response        THEN number_response ELSE 0 END
    *
-   * Since nothing in this codebase writes them, something else must (most likely a database
-   * trigger, or a one-off backfill). Do not drop these, and do not treat them as authoritative
-   * until that discrepancy is explained — one of the two numbers is wrong.
+   * They appear in no migration file, which is why they looked mysterious. Read-only: never
+   * include them in an insert or update payload — Postgres rejects that.
+   *
+   * The admin dashboard re-derives these same figures in the browser from the raw columns.
+   * Selecting them directly instead would let the database do that work, and is the obvious
+   * route to a SQL-side aggregate (REVIEW.md #18).
    */
   invites_reached?: number | null;
   conversations_reached?: number | null;
