@@ -36,8 +36,13 @@ its own.
 
 ## Worth knowing
 
-- **Imports are not idempotent.** Running the same file twice inserts everything twice; there
-  is no constraint preventing it. Check for overlap with what is already loaded.
+- **Re-running a file is safe.** Each imported row is fingerprinted, so a second run of the
+  same file reports "already imported, skipped" instead of duplicating. Rows that repeat
+  identically *within* one file are still all imported — they are numbered, so two identical
+  encounters on the same day both land.
+- **This only covers imports made after 2026-08-18.** Rows loaded before that carry no
+  fingerprint, so a file of older data can still duplicate what is already there. Check for
+  overlap when loading historical files.
 - **This creates records, not logins.** Imported people cannot sign in until they register
   themselves with the same address, at which point their imported history is adopted
   automatically.

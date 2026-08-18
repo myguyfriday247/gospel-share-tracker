@@ -3,7 +3,8 @@
 import { useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { parseCSVToObjects, toCSV, downloadCSV, parseCsvBoolean } from "@/lib/csv";
-import { errorMessage, reportError } from "@/lib/errors";
+import { errorMessage, reportError, isUniqueViolation } from "@/lib/errors";
+import { importKey, canonicalRow, createOccurrenceCounter } from "@/lib/importKey";
 import { normalizeEmail } from "@/lib/email";
 import { findOrCreatePersonByEmail } from "@/lib/people";
 import { toYMD, parseFlexibleDate } from "@/lib/date";
@@ -28,6 +29,8 @@ type ImportResult = {
   imported: number;
   /** People created because an entry referenced an email with no existing record. */
   createdPeople?: number;
+  /** Rows already present from a previous run of the same file. */
+  skipped?: number;
   errors: string[];
   failedRows: CSVRow[];
 };
@@ -128,6 +131,8 @@ export default function AdminImportPage() {
     const failedRows: CSVRow[] = [];
     let imported = 0;
     let createdPeople = 0;
+    let skipped = 0;
+    const occurrenceOf = createOccurrenceCounter();
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -153,30 +158,49 @@ export default function AdminImportPage() {
       }
       if (person.created) createdPeople++;
 
+      const fields = {
+        email: row.email,
+        entryDate: parseFlexibleDate(row.entry_date) ?? "",
+        numberReached: parseInt(row.number_reached) || 0,
+        churchInvite: parseCsvBoolean(row.church_invite),
+        spiritualConversation: parseCsvBoolean(row.spiritual_conversation),
+        storyShare: parseCsvBoolean(row.story_share),
+        gospelPresentation: parseCsvBoolean(row.gospel_presentation),
+        gospelResponse: parseCsvBoolean(row.gospel_response),
+        numberResponse: parseInt(row.number_response) || 0,
+        notes: row.notes || "",
+      };
+
       const entry = {
         person_id: person.id,
-        entry_date: parseFlexibleDate(row.entry_date),
-        number_reached: parseInt(row.number_reached) || 0,
-        church_invite: parseCsvBoolean(row.church_invite),
-        spiritual_conversation: parseCsvBoolean(row.spiritual_conversation),
-        story_share: parseCsvBoolean(row.story_share),
-        gospel_presentation: parseCsvBoolean(row.gospel_presentation),
-        gospel_response: parseCsvBoolean(row.gospel_response),
-        number_response: parseInt(row.number_response) || 0,
-        notes: row.notes || "",
+        entry_date: fields.entryDate,
+        number_reached: fields.numberReached,
+        church_invite: fields.churchInvite,
+        spiritual_conversation: fields.spiritualConversation,
+        story_share: fields.storyShare,
+        gospel_presentation: fields.gospelPresentation,
+        gospel_response: fields.gospelResponse,
+        number_response: fields.numberResponse,
+        notes: fields.notes,
+        import_key: await importKey(fields, occurrenceOf(canonicalRow(fields))),
       };
 
       const { error: insertError } = await supabase.from("gospel_share_entries").insert(entry);
 
       if (insertError) {
-        errors.push(`Row ${i + 1}: ${insertError.message}`);
-        failedRows.push(row);
+        // Same file, already loaded: the unique index on import_key rejects the repeat.
+        if (isUniqueViolation(insertError)) {
+          skipped++;
+        } else {
+          errors.push(`Row ${i + 1}: ${insertError.message}`);
+          failedRows.push(row);
+        }
       } else {
         imported++;
       }
     }
 
-    return { success: errors.length === 0, imported, createdPeople, errors, failedRows };
+    return { success: errors.length === 0, imported, createdPeople, skipped, errors, failedRows };
   };
 
   // Handle import
@@ -346,6 +370,12 @@ export default function AdminImportPage() {
           <CardContent>
             <p className="mb-4">
               <strong>{result.imported}</strong> rows imported successfully
+              {result.skipped ? (
+                <>
+                  {" · "}
+                  <strong>{result.skipped}</strong> already imported, skipped
+                </>
+              ) : null}
               {result.createdPeople ? (
                 <>
                   {" · "}

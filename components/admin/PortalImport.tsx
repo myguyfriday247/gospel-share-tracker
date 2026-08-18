@@ -9,7 +9,8 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { errorMessage, reportError } from "@/lib/errors";
+import { errorMessage, reportError, isUniqueViolation } from "@/lib/errors";
+import { importKey, canonicalRow, createOccurrenceCounter } from "@/lib/importKey";
 import { normalizeEmail } from "@/lib/email";
 import { findOrCreatePersonByEmail } from "@/lib/people";
 import { parseCSVToObjects, parseCsvBoolean } from "@/lib/csv";
@@ -77,6 +78,8 @@ export function PortalImport({ onImported }: PortalImportProps) {
       // import where every row failed still claimed success.
       let imported = 0;
       let createdPeople = 0;
+      let skipped = 0;
+      const occurrenceOf = createOccurrenceCounter();
       const failures: string[] = [];
 
       if (importType === "people") {
@@ -134,22 +137,41 @@ export function PortalImport({ onImported }: PortalImportProps) {
             continue;
           }
 
+          const fields = {
+            email: row.email,
+            entryDate,
+            numberReached: parseInt(row.number_reached) || 0,
+            churchInvite: parseCsvBoolean(row.church_invite),
+            spiritualConversation: parseCsvBoolean(row.spiritual_conversation),
+            storyShare: parseCsvBoolean(row.story_share),
+            gospelPresentation: parseCsvBoolean(row.gospel_presentation),
+            gospelResponse: parseCsvBoolean(row.gospel_response),
+            numberResponse: parseInt(row.number_response) || 0,
+            notes: row.notes || "",
+          };
+
           const { error: insertError } = await supabase.from("gospel_share_entries").insert({
             person_id: person.id,
-            entry_date: entryDate,
-            number_reached: parseInt(row.number_reached) || 0,
-            church_invite: parseCsvBoolean(row.church_invite),
-            spiritual_conversation: parseCsvBoolean(row.spiritual_conversation),
-            story_share: parseCsvBoolean(row.story_share),
-            gospel_presentation: parseCsvBoolean(row.gospel_presentation),
-            gospel_response: parseCsvBoolean(row.gospel_response),
-            number_response: parseInt(row.number_response) || 0,
+            entry_date: fields.entryDate,
+            number_reached: fields.numberReached,
+            church_invite: fields.churchInvite,
+            spiritual_conversation: fields.spiritualConversation,
+            story_share: fields.storyShare,
+            gospel_presentation: fields.gospelPresentation,
+            gospel_response: fields.gospelResponse,
+            number_response: fields.numberResponse,
             notes: row.notes || null,
+            import_key: await importKey(fields, occurrenceOf(canonicalRow(fields))),
           });
 
           if (insertError) {
-            reportError("portal: import entry", insertError);
-            failures.push(`Row ${i + 2} (${row.email}): ${insertError.message}`);
+            // Same file, already loaded: the unique index on import_key rejects the repeat.
+            if (isUniqueViolation(insertError)) {
+              skipped++;
+            } else {
+              reportError("portal: import entry", insertError);
+              failures.push(`Row ${i + 2} (${row.email}): ${insertError.message}`);
+            }
           } else {
             imported++;
           }
@@ -158,6 +180,7 @@ export function PortalImport({ onImported }: PortalImportProps) {
 
       setNotice(
         `Imported ${imported} of ${data.length} rows.` +
+          (skipped > 0 ? ` Skipped ${skipped} already imported.` : "") +
           (createdPeople > 0 ? ` Created ${createdPeople} new ${createdPeople === 1 ? "person" : "people"}.` : "")
       );
       if (failures.length > 0) {
