@@ -10,6 +10,28 @@
 Findings marked **[verified]** were reproduced against the running app or live database.
 Findings marked **[inferred]** are read from code and still need confirmation.
 
+### Progress
+
+| # | Finding | Status |
+|---|---|---|
+| 1 | Database readable by anyone | **Open** — fix drafted in `006_restrict_rls.sql`, not applied |
+| 2 | Any user can edit/delete any person | **Open** — needs 006 |
+| 3 | Admin decided by user-writable metadata | **App fixed** — DB policy still needs 006 |
+| 4 | `?person=` exposes other dashboards | **Open** — no app-layer check yet; 006 closes it at the data layer |
+| 5 | Debug ids on Access Denied screen | **Fixed** |
+| 6 | Entry dates one day early | **Fixed** |
+| 7 | CSV export corrupt | **Fixed** |
+| 8 | Second broken CSV exporter | **Fixed** |
+| 9 | Dashboard totals/chart go stale | **Fixed** |
+| 10 | Race creating duplicate person rows | **Fixed** |
+| 11 | Errors discarded | **Partial** — identity + dashboard paths done; admin pages remain |
+| 12–14 | Schema drift, dual key, stale types | **Open** |
+| 15–18 | Efficiency | **Partial** — #17 done (5 person queries per load → 2) |
+| P4 | Maintainability | **Partial** — dead dashboard state and unused imports removed |
+
+A related bug found while fixing #6: `ShareForm` defaulted its date from `toISOString()` (UTC), so
+after ~8pm Eastern it pre-filled *tomorrow* and silently misdated evening entries. Also fixed.
+
 ---
 
 ## P0 — Security (live, affects real user data)

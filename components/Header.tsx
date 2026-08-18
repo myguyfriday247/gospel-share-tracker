@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabaseClient";
+import { useCurrentPerson } from "@/hooks/useCurrentPerson";
 import { ShareForm } from "@/components/forms/ShareForm";
 
 type HeaderProps = {
@@ -25,69 +26,16 @@ type HeaderProps = {
 };
 
 export default function Header({ currentPage = "dashboard" }: HeaderProps) {
-  const [loading, setLoading] = useState(true);
-  const [personId, setPersonId] = useState<string>("");
-  const [isAdmin, setIsAdmin] = useState(false);
   const [addShareOpen, setAddShareOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const router = useRouter();
 
+  const { person, isAdmin, loading, signedOut } = useCurrentPerson();
+  const personId = person?.id ?? "";
+
   useEffect(() => {
-    async function init() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) {
-        router.push("/login");
-        return;
-      }
-
-      const user = session.user;
-
-      // Try to find person by ID first
-      let { data: person, error } = await supabase
-        .from("people")
-        .select("id, role")
-        .eq("id", user.id)
-        .single();
-
-      // If not found by ID, try by email
-      if (error && error.code === "PGRST116") {
-        const { data: personByEmail } = await supabase
-          .from("people")
-          .select("id, role")
-          .eq("email", user.email)
-          .single();
-
-        if (personByEmail) {
-          person = personByEmail;
-        }
-      }
-
-      // If still no person record, create one
-      if (!person) {
-        const fullName = user.user_metadata?.full_name || user.email?.split("@")[0] || "User";
-        const { data: newPerson } = await supabase
-          .from("people")
-          .insert({
-            id: user.id,
-            email: user.email,
-            full_name: fullName,
-            role: "user",
-          })
-          .select("id, role")
-          .single();
-        person = newPerson;
-      }
-
-      if (person) {
-        setPersonId(person.id);
-        setIsAdmin(person.role === "admin");
-      }
-
-      setLoading(false);
-    }
-
-    init();
-  }, [router]);
+    if (signedOut) router.push("/login");
+  }, [signedOut, router]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();

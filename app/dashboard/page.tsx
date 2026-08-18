@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import { useCurrentPerson } from "@/hooks/useCurrentPerson";
+import { errorMessage, reportError } from "@/lib/errors";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,154 +32,113 @@ import { Loader2 } from "lucide-react";
 import { DateRangeSelector } from "@/components/ui/DateRangeSelector";
 import { EntryRecord } from "@/components/EntryRecord";
 
+const formatName = (name: string) =>
+  name
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+
 function DashboardContent() {
-  const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [loadingEntries, setLoadingEntries] = useState(true);
   const [personName, setPersonName] = useState("");
   const [personId, setPersonId] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const [rangeKey, setRangeKey] = useState<RangeKey>("this_week");
   const range = useMemo(() => getDateRange(rangeKey), [rangeKey]);
   const searchParams = useSearchParams();
+  const viewingPersonId = searchParams.get("person");
 
   const [entries, setEntries] = useState<Entry[]>([]);
   const [allEntries, setAllEntries] = useState<Entry[]>([]);
-  const [currentPersonId, setCurrentPersonId] = useState<string>("");
-  const [loggedInPersonId, setLoggedInPersonId] = useState<string>("");
+
+  const { person, loading: loadingPerson, error: personError, signedOut } =
+    useCurrentPerson();
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
+    if (signedOut) window.location.href = "/login";
+  }, [signedOut]);
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const user = sessionData.session?.user;
+  // Which person's dashboard is on screen: the ?person= override, else the logged-in user.
+  const targetPersonId = viewingPersonId || person?.id || "";
 
-      if (!user) {
-        window.location.href = "/login";
-        return;
-      }
+  const loadEntries = useCallback(async () => {
+    if (!targetPersonId) return;
+    setLoadingEntries(true);
+    setError(null);
 
-      // Always find the logged-in user's person first
-      let loggedInPersonId = "";
-      let loggedInPersonName = "";
+    let qAll = supabase
+      .from("gospel_share_entries")
+      .select("*")
+      .eq("person_id", targetPersonId)
+      .order("entry_date", { ascending: true })
+      .limit(5000);
 
-      // Try by ID first
-      const { data: loggedInPerson, error: errorById } = await supabase
-        .from("people")
-        .select("id, full_name")
-        .eq("id", user.id)
-        .single();
+    if (range.start) qAll = qAll.gte("entry_date", range.start);
+    if (range.end) qAll = qAll.lte("entry_date", range.end);
 
-      if (loggedInPerson) {
-        loggedInPersonId = loggedInPerson.id;
-        loggedInPersonName = formatName(loggedInPerson.full_name);
-      } else {
-        // Try by email - use this record since it has the shares
-        const { data: personByEmail } = await supabase
-          .from("people")
-          .select("id, full_name")
-          .eq("email", user.email)
-          .single();
-
-        if (personByEmail) {
-          loggedInPersonId = personByEmail.id;
-          loggedInPersonName = formatName(personByEmail.full_name);
-        } else {
-          // Create new person record
-          const fullName = user.user_metadata?.full_name || user.email?.split("@")[0] || "User";
-          const { data: newPerson } = await supabase
-            .from("people")
-            .insert({
-              id: user.id,
-              email: user.email,
-              full_name: fullName,
-              role: "user",
-            })
-            .select("id, full_name")
-            .single();
-          
-          if (newPerson) {
-            loggedInPersonId = newPerson.id;
-            loggedInPersonName = formatName(newPerson.full_name);
-          }
-        }
-      }
-
-      setLoggedInPersonId(loggedInPersonId);
-
-      // Check if viewing someone else's dashboard
-      const urlPersonId = searchParams.get("person");
-      let pid = urlPersonId || loggedInPersonId;
-      let pName = "";
-
-      if (urlPersonId) {
-        // Viewing someone else's dashboard
-        const { data: personData } = await supabase
-          .from("people")
-          .select("full_name")
-          .eq("id", pid)
-          .single();
-        if (personData) {
-          pName = formatName(personData.full_name);
-        }
-      } else {
-        // Viewing own dashboard
-        pName = loggedInPersonName;
-      }
-
-      setPersonId(pid);
-      setPersonName(pName);
-      setCurrentPersonId(pid);
-
-      if (!pid) {
-        setLoading(false);
-        return;
-      }
-
-      let qAll = supabase
+    const [allRes, recentRes] = await Promise.all([
+      qAll,
+      supabase
         .from("gospel_share_entries")
         .select("*")
-        .eq("person_id", pid)
-        .order("entry_date", { ascending: true })
-        .limit(5000);
-
-      if (range.start) qAll = qAll.gte("entry_date", range.start);
-      if (range.end) qAll = qAll.lte("entry_date", range.end);
-
-      const allRes = await qAll;
-
-      if (!allRes.error) {
-        setAllEntries((allRes.data as Entry[]) ?? []);
-      }
-
-      let qRecent = supabase
-        .from("gospel_share_entries")
-        .select("*")
-        .eq("person_id", pid)
+        .eq("person_id", targetPersonId)
         .order("entry_date", { ascending: false })
-        .limit(3);
+        .limit(3),
+    ]);
 
-      const recentRes = await qRecent;
+    if (allRes.error) {
+      reportError("dashboard: load entries for range", allRes.error);
+      setError(errorMessage(allRes.error));
+    } else {
+      setAllEntries((allRes.data as Entry[]) ?? []);
+    }
 
-      if (!recentRes.error) {
-        setEntries((recentRes.data as Entry[]) ?? []);
+    if (recentRes.error) {
+      reportError("dashboard: load recent entries", recentRes.error);
+      setError(errorMessage(recentRes.error));
+    } else {
+      setEntries((recentRes.data as Entry[]) ?? []);
+    }
+
+    setLoadingEntries(false);
+  }, [targetPersonId, range.start, range.end]);
+
+  useEffect(() => {
+    void loadEntries();
+  }, [loadEntries]);
+
+  // Resolve the displayed name — either the person being viewed, or the logged-in user.
+  useEffect(() => {
+    let active = true;
+    async function resolveName() {
+      if (!viewingPersonId) {
+        if (active) setPersonName(person ? formatName(person.full_name) : "");
+        return;
       }
-
-      // Check admin status from people.role first
-      const { data: adminPerson } = await supabase
+      const { data, error: nameError } = await supabase
         .from("people")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-      
-      const isAdminUser = adminPerson?.role === "admin" || user.user_metadata?.role === "admin";
-      setIsAdmin(isAdminUser);
-
-      setLoading(false);
+        .select("full_name")
+        .eq("id", viewingPersonId)
+        .maybeSingle();
+      if (nameError) {
+        reportError("dashboard: look up viewed person", nameError);
+        if (active) setError(errorMessage(nameError));
+        return;
+      }
+      if (active) setPersonName(data ? formatName(data.full_name) : "");
+    }
+    void resolveName();
+    return () => {
+      active = false;
     };
+  }, [viewingPersonId, person]);
 
-    load();
-  }, [range.start, range.end]);
+  useEffect(() => {
+    setPersonId(targetPersonId);
+  }, [targetPersonId]);
+
+  const loading = loadingPerson || loadingEntries;
 
   const totals: Totals = useMemo(() => {
     const totalReached = allEntries.reduce((sum, e) => sum + (e.number_reached || 0), 0);
@@ -216,23 +177,10 @@ function DashboardContent() {
       .map(([date, v]) => ({ date, reached: v.reached, responses: v.responses }));
   }, [allEntries]);
 
-  const formatName = (name: string) => {
-    return name
-      .split(" ")
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(" ");
-  };
-
-  const refreshEntries = async () => {
-    if (!personId) return;
-    const { data: recentRes } = await supabase
-      .from("gospel_share_entries")
-      .select("*")
-      .eq("person_id", personId)
-      .order("entry_date", { ascending: false })
-      .limit(3);
-    setEntries((recentRes as Entry[]) || []);
-  };
+  // Reloads both the recent list and the range data behind the cards and chart. Previously
+  // this refreshed only the recent 3, so after an edit or delete the totals and chart kept
+  // showing the old numbers until a full page reload.
+  const refreshEntries = loadEntries;
 
   return (
     <>
@@ -245,12 +193,26 @@ function DashboardContent() {
             <h1 className="text-2xl font-semibold">Dashboard</h1>
             <p className="text-gray-500">{personName ? `${personName}'s Dashboard` : "Welcome!"}</p>
           </div>
-          {searchParams.get("person") && (
+          {viewingPersonId && (
             <Button variant="outline" onClick={() => window.history.back()}>
               ← Back
             </Button>
           )}
         </div>
+
+        {/* Surface load failures rather than rendering them as zeros */}
+        {(error || personError) && (
+          <div
+            role="alert"
+            className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+          >
+            <p className="font-medium">Some data could not be loaded.</p>
+            <p className="mt-1">{error || personError}</p>
+            <Button variant="outline" className="mt-3" onClick={() => void loadEntries()}>
+              Try again
+            </Button>
+          </div>
+        )}
 
         {/* Date Range Selector */}
         <DateRangeSelector value={rangeKey} onChange={setRangeKey} />

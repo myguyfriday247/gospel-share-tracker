@@ -1,40 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { useCurrentPerson } from "@/hooks/useCurrentPerson";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ShareForm } from "@/components/forms/ShareForm";
 
 export default function NewEntryPage() {
-  const [personId, setPersonId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const { person, loading, error, signedOut } = useCurrentPerson();
+  const personId = person?.id ?? null;
 
   useEffect(() => {
-    async function getPersonId() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) {
-        router.push("/login");
-        return;
-      }
-
-      // Look up person_id from people table
-      const { data: person } = await supabase
-        .from("people")
-        .select("id")
-        .eq("email", session.user.email)
-        .single();
-
-      if (person) {
-        setPersonId(person.id);
-      }
-      setLoading(false);
-    }
-
-    getPersonId();
-  }, [router]);
+    if (signedOut) router.push("/login");
+  }, [signedOut, router]);
 
   if (loading) {
     return (
@@ -53,7 +33,9 @@ export default function NewEntryPage() {
       <div className="p-6 max-w-2xl mx-auto">
         <Card>
           <CardContent className="py-12 text-center">
-            <p className="text-gray-600">Could not find your profile.</p>
+            <p className="text-gray-600">
+              {error ? `Could not load your profile: ${error}` : "Could not find your profile."}
+            </p>
             <Button 
               variant="outline" 
               onClick={() => router.push("/dashboard")}
