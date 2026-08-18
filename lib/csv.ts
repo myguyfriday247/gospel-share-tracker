@@ -131,3 +131,17 @@ export function downloadCSV(filename: string, csv: string): void {
   link.click();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Interpret a boolean cell from an imported CSV.
+ *
+ * Spreadsheets write TRUE/FALSE in caps, and hand-made files use all sorts of things. The
+ * importer previously compared against the literal lowercase "true", so a file of TRUE/FALSE
+ * read as entirely false — which, before the share-type rule existed, would have loaded every
+ * row with no share type recorded.
+ */
+const TRUTHY = new Set(["true", "t", "yes", "y", "1", "x"]);
+
+export function parseCsvBoolean(value: string | undefined | null): boolean {
+  return TRUTHY.has((value ?? "").trim().toLowerCase());
+}

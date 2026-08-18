@@ -2,11 +2,11 @@
 
 import { useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { parseCSVToObjects, toCSV, downloadCSV } from "@/lib/csv";
+import { parseCSVToObjects, toCSV, downloadCSV, parseCsvBoolean } from "@/lib/csv";
 import { errorMessage, reportError } from "@/lib/errors";
 import { normalizeEmail } from "@/lib/email";
 import { findOrCreatePersonByEmail } from "@/lib/people";
-import { toYMD } from "@/lib/date";
+import { toYMD, parseFlexibleDate } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -69,13 +69,15 @@ export default function AdminImportPage() {
     // failed later as a misleading "Person not found".
     if (!row.email) return "Missing email";
     if (!row.entry_date) return "Missing entry_date";
+    if (!parseFlexibleDate(row.entry_date))
+      return `entry_date "${row.entry_date}" is not a date the importer recognises (use YYYY-MM-DD or M/D/YYYY)`;
     if (!row.number_reached) return "Missing number_reached";
     // At least one share type, matching the add and edit forms.
     if (
-      row.church_invite !== "true" &&
-      row.spiritual_conversation !== "true" &&
-      row.story_share !== "true" &&
-      row.gospel_presentation !== "true"
+      !parseCsvBoolean(row.church_invite) &&
+      !parseCsvBoolean(row.spiritual_conversation) &&
+      !parseCsvBoolean(row.story_share) &&
+      !parseCsvBoolean(row.gospel_presentation)
     ) {
       return "Needs at least one share type set to true (church_invite, spiritual_conversation, story_share or gospel_presentation)";
     }
@@ -153,13 +155,13 @@ export default function AdminImportPage() {
 
       const entry = {
         person_id: person.id,
-        entry_date: row.entry_date,
+        entry_date: parseFlexibleDate(row.entry_date),
         number_reached: parseInt(row.number_reached) || 0,
-        church_invite: row.church_invite === "true",
-        spiritual_conversation: row.spiritual_conversation === "true",
-        story_share: row.story_share === "true",
-        gospel_presentation: row.gospel_presentation === "true",
-        gospel_response: row.gospel_response === "true",
+        church_invite: parseCsvBoolean(row.church_invite),
+        spiritual_conversation: parseCsvBoolean(row.spiritual_conversation),
+        story_share: parseCsvBoolean(row.story_share),
+        gospel_presentation: parseCsvBoolean(row.gospel_presentation),
+        gospel_response: parseCsvBoolean(row.gospel_response),
         number_response: parseInt(row.number_response) || 0,
         notes: row.notes || "",
       };

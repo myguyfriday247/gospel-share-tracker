@@ -12,7 +12,8 @@ import { supabase } from "@/lib/supabaseClient";
 import { errorMessage, reportError } from "@/lib/errors";
 import { normalizeEmail } from "@/lib/email";
 import { findOrCreatePersonByEmail } from "@/lib/people";
-import { parseCSVToObjects } from "@/lib/csv";
+import { parseCSVToObjects, parseCsvBoolean } from "@/lib/csv";
+import { parseFlexibleDate } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -118,24 +119,30 @@ export function PortalImport({ onImported }: PortalImportProps) {
 
           // At least one share type, matching the add and edit forms.
           if (
-            row.church_invite !== "true" &&
-            row.spiritual_conversation !== "true" &&
-            row.story_share !== "true" &&
-            row.gospel_presentation !== "true"
+            !parseCsvBoolean(row.church_invite) &&
+            !parseCsvBoolean(row.spiritual_conversation) &&
+            !parseCsvBoolean(row.story_share) &&
+            !parseCsvBoolean(row.gospel_presentation)
           ) {
             failures.push(`Row ${i + 2} (${row.email}): needs at least one share type`);
             continue;
           }
 
+          const entryDate = parseFlexibleDate(row.entry_date ?? "");
+          if (!entryDate) {
+            failures.push(`Row ${i + 2} (${row.email}): entry_date "${row.entry_date}" is not a recognised date`);
+            continue;
+          }
+
           const { error: insertError } = await supabase.from("gospel_share_entries").insert({
             person_id: person.id,
-            entry_date: row.entry_date,
+            entry_date: entryDate,
             number_reached: parseInt(row.number_reached) || 0,
-            church_invite: row.church_invite === "true",
-            spiritual_conversation: row.spiritual_conversation === "true",
-            story_share: row.story_share === "true",
-            gospel_presentation: row.gospel_presentation === "true",
-            gospel_response: row.gospel_response === "true",
+            church_invite: parseCsvBoolean(row.church_invite),
+            spiritual_conversation: parseCsvBoolean(row.spiritual_conversation),
+            story_share: parseCsvBoolean(row.story_share),
+            gospel_presentation: parseCsvBoolean(row.gospel_presentation),
+            gospel_response: parseCsvBoolean(row.gospel_response),
             number_response: parseInt(row.number_response) || 0,
             notes: row.notes || null,
           });

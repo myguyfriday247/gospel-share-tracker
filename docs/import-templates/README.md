@@ -8,21 +8,21 @@ Two headers-only files to fill in. Import from **Admin Portal → Import Data**,
 |---|---|---|
 | `email` | yes | Identifies the person. Matched case-insensitively; an unknown address creates a new person record. |
 | `full_name` | no | Only used when the address is new. Existing people keep the name already on file. Omit it and a new person is named from the part before the `@`. |
-| `entry_date` | yes | `YYYY-MM-DD`. |
+| `entry_date` | yes | `YYYY-MM-DD`, or `M/D/YYYY` / `M/D/YY` as spreadsheets export. **Slash dates are read month-first**, so `9/5/25` is 5 September 2025. Two-digit years pivot at 70. |
 | `number_reached` | yes | Whole number. |
-| `church_invite` | see below | `true` or `false` |
-| `spiritual_conversation` | see below | `true` or `false` |
-| `story_share` | see below | `true` or `false` |
-| `gospel_presentation` | see below | `true` or `false` |
-| `gospel_response` | no | `true` or `false`; defaults to false |
+| `church_invite` | see below | `true`/`false`, any case |
+| `spiritual_conversation` | see below | `true`/`false`, any case |
+| `story_share` | see below | `true`/`false`, any case |
+| `gospel_presentation` | see below | `true`/`false`, any case |
+| `gospel_response` | no | `true`/`false`, any case; defaults to false |
 | `number_response` | no | Whole number; only counted when `gospel_response` is true |
 | `notes` | no | Free text. Commas, quotes and line breaks are fine — quote the field. |
 
 **At least one of the four share types must be `true`**, or the row is rejected with its row
 number. This is enforced by the database, not just the form.
 
-Booleans must be the literal lowercase string `true`. Anything else — `TRUE`, `1`, `yes`,
-blank — counts as false.
+Booleans accept `true`, `TRUE`, `True`, `t`, `yes`, `y`, `1` or `x`. Anything else, including
+blank, counts as false.
 
 ## people-template.csv
 

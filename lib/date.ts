@@ -98,3 +98,37 @@ export function getDateRange(key: RangeKey): DateRange {
   const end = new Date(now.getFullYear(), 11, 31);
   return { label: "This Year", start: toYMD(start), end: toYMD(end) };
 }
+
+// Parse a date cell from an imported CSV into YYYY-MM-DD, or null if it isn't a date.
+//
+// Accepts the ISO form the app writes, and the M/D/YY or M/D/YYYY form spreadsheets produce
+// (Excel and Google Sheets both export US-style by default on a US locale). Separators may be
+// / - or . — but the ISO branch is tried first, so 2026-08-18 is never read as a US date.
+//
+// DELIBERATELY month-first: "9/5/25" is 5 September 2025, not 9 May. A day-first file would be
+// silently misread, which is why the import help text states the assumption. Two-digit years
+// pivot at 70, so 25 -> 2025 and 95 -> 1995.
+export function parseFlexibleDate(value: string): string | null {
+  const v = value.trim();
+  if (!v) return null;
+
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(v);
+  if (iso) return isoIfReal(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+
+  const us = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/.exec(v);
+  if (us) {
+    const raw = Number(us[3]);
+    const year = us[3].length === 2 ? (raw < 70 ? 2000 + raw : 1900 + raw) : raw;
+    return isoIfReal(year, Number(us[1]), Number(us[2]));
+  }
+
+  return null;
+}
+
+// Rejects impossible dates such as 2/30 rather than letting Date roll them forward.
+function isoIfReal(year: number, month: number, day: number): string | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const d = new Date(year, month - 1, day);
+  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+}
