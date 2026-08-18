@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { parseCSVToObjects, toCSV, downloadCSV, parseCsvBoolean } from "@/lib/csv";
 import { errorMessage, reportError, isUniqueViolation } from "@/lib/errors";
@@ -41,6 +41,13 @@ export default function AdminImportPage() {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+
+  // The results card sits below the preview table and the Import button, so on a large file
+  // it lands off-screen — the import looks like it did nothing, which invites a second click.
+  const resultRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (result) resultRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [result]);
 
   // Parse CSV file (preview shows the first 10 rows; totalRows counts them all)
   const parseCSV = useCallback(async (f: File): Promise<ImportPreview> => {
@@ -354,7 +361,7 @@ export default function AdminImportPage() {
 
       {/* Results */}
       {result && (
-        <Card>
+        <Card ref={resultRef} role="status" aria-live="polite">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               {result.success ? (

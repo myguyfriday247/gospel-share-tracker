@@ -7,7 +7,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { errorMessage, reportError, isUniqueViolation } from "@/lib/errors";
 import { importKey, canonicalRow, createOccurrenceCounter } from "@/lib/importKey";
@@ -41,6 +41,13 @@ export function PortalImport({ onImported }: PortalImportProps) {
   const [importType, setImportType] = useState<"people" | "entries">("entries");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // The outcome renders above the form, so after clicking Import at the bottom it can be
+  // scrolled out of view. Bring it back into sight.
+  const outcomeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (notice || error) outcomeRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [notice, error]);
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -202,6 +209,7 @@ export function PortalImport({ onImported }: PortalImportProps) {
 
   return (
     <div className="space-y-4">
+      <div ref={outcomeRef} />
       {notice && (
         <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
           {notice}
