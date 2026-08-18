@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { errorMessage, reportError } from "@/lib/errors";
 import Header from "@/components/Header";
-import { Button } from "@/components/ui/button";
+import { ErrorBanner } from "@/components/ErrorBanner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -33,7 +34,7 @@ import { DateRangeSelector } from "@/components/ui/DateRangeSelector";
 import { Pagination } from "@/components/ui/Pagination";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { getDateRange } from "@/lib/date";
-import { RangeKey, UserAgg, OverallAgg, formatDisplayName } from "@/lib/types";
+import { RangeKey, UserAgg, OverallAgg, ChartDataPoint, formatDisplayName } from "@/lib/types";
 
 export default function AdminDashboard() {
   const [range, setRange] = useState<RangeKey>("this_week");
@@ -48,8 +49,10 @@ export default function AdminDashboard() {
     gospel_share_reached: 0,
   });
   const [byUser, setByUser] = useState<UserAgg[]>([]);
-  const [chartData, setChartData] = useState<any[]>([]);
-  const [nameMap, setNameMap] = useState<Record<string, string>>({});
+  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -89,34 +92,26 @@ export default function AdminDashboard() {
       .slice(startIdx, startIdx + pageSize);
   }, [byUser, sortColumn, sortDirection, pageSize, startIdx]);
 
-  // Reset page when range changes
-  useEffect(() => {
+  // Changing the range resets to page 1. Done here rather than in an effect keyed on `range`,
+  // which caused a second render pass on every range change.
+  const handleRangeChange = (next: RangeKey) => {
+    setRange(next);
     setPage(1);
-  }, [range]);
+  };
 
   const rangeInfo = useMemo(() => getDateRange(range), [range]);
 
-  // Fetch person names map (person_id -> person_name)
+  // People and entries load together in one pass. These were previously two effects, with the
+  // aggregation depending on nameMap — so every load fetched the whole entries table twice:
+  // once before names arrived and again after.
+  // Defined inside the effect and re-run via reloadToken, so the effect body itself never
+  // calls setState synchronously.
   useEffect(() => {
-    async function fetchNames() {
-      const { data: people } = await supabase.from("people").select("id, full_name");
-      
-      if (people) {
-        const personMap: Record<string, string> = {};
-        people.forEach((p) => {
-          personMap[p.id] = p.full_name;
-        });
-        setNameMap(personMap);
-      }
-    }
-    fetchNames();
-  }, []);
+    let active = true;
 
-  useEffect(() => {
     async function load() {
       const { start, end } = rangeInfo;
 
-      // Get entries with person_id (join via profiles if needed)
       let entryQ = supabase
         .from("gospel_share_entries")
         .select("entry_date,number_reached,number_response,church_invite,spiritual_conversation,story_share,gospel_presentation,user_id,person_id");
@@ -124,83 +119,108 @@ export default function AdminDashboard() {
       if (start) entryQ = entryQ.gte("entry_date", start);
       if (end) entryQ = entryQ.lte("entry_date", end);
 
-      const { data: raw } = await entryQ;
+      const [peopleRes, entriesRes] = await Promise.all([
+        supabase.from("people").select("id, full_name"),
+        entryQ,
+      ]);
 
-      // Calculate unique users from entries (from user_id OR person_id)
-      const uniqueUserIds = new Set((raw || []).map(e => e.user_id || e.person_id).filter(Boolean));
-      const uniqueUsers = uniqueUserIds.size;
+      if (!active) return;
+      setLoading(false);
 
-      // Calculate aggregates
-      let reach = 0, resp = 0, invites = 0, conversations = 0, stories = 0, gospel = 0;
-      const byDate: Record<string, { reached: number; responses: number }> = {};
-      const byUserMap: Record<string, UserAgg> = {};
-
-      for (const e of raw || []) {
-        // Date aggregation
-        const d = e.entry_date;
-        if (!byDate[d]) byDate[d] = { reached: 0, responses: 0 };
-        byDate[d].reached += Number(e.number_reached) || 0;
-        byDate[d].responses += Number(e.number_response) || 0;
-
-        // Overall metrics
-        reach += Number(e.number_reached) || 0;
-        resp += Number(e.number_response) || 0;
-        if (e.church_invite) invites += Number(e.number_reached) || 0;
-        if (e.spiritual_conversation) conversations += Number(e.number_reached) || 0;
-        if (e.story_share) stories += Number(e.number_reached) || 0;
-        if (e.gospel_presentation) gospel += Number(e.number_reached) || 0;
-
-        // Use person_id if available, otherwise use user_id (as auth users are also people), otherwise anonymous
-        const personKey = e.person_id || e.user_id || "anonymous";
-        
-        if (!byUserMap[personKey]) {
-          byUserMap[personKey] = {
-            user_id: personKey,
-            display_name: formatDisplayName(personKey, nameMap),
-            entries: 0,
-            total_reached: 0,
-            total_responses: 0,
-            invites_reached: 0,
-            conversations_reached: 0,
-            story_share_reached: 0,
-            gospel_share_reached: 0,
-          };
-        }
-        byUserMap[personKey].entries++;
-        byUserMap[personKey].total_reached += Number(e.number_reached) || 0;
-        byUserMap[personKey].total_responses += Number(e.number_response) || 0;
-        if (e.church_invite) byUserMap[personKey].invites_reached += Number(e.number_reached) || 0;
-        if (e.spiritual_conversation) byUserMap[personKey].conversations_reached += Number(e.number_reached) || 0;
-        if (e.story_share) byUserMap[personKey].story_share_reached += Number(e.number_reached) || 0;
-        if (e.gospel_presentation) byUserMap[personKey].gospel_share_reached += Number(e.number_reached) || 0;
+      if (peopleRes.error) {
+        reportError("admin dashboard: load people", peopleRes.error);
+        setError(errorMessage(peopleRes.error));
+        return;
+      }
+      if (entriesRes.error) {
+        reportError("admin dashboard: load entries", entriesRes.error);
+        setError(errorMessage(entriesRes.error));
+        return;
       }
 
-      setOverall({
-        unique_users: uniqueUsers || 0,
-        entries: raw?.length || 0,
-        total_reached: reach,
-        total_responses: resp,
-        invites_reached: invites,
-        conversations_reached: conversations,
-        story_share_reached: stories,
-        gospel_share_reached: gospel,
-      });
+      setError(null);
 
-      setChartData(
-        Object.entries(byDate)
-          .map(([k, v]) => ({ date: k, ...v }))
-          .sort((a, b) => a.date.localeCompare(b.date))
-      );
+      const names: Record<string, string> = {};
+      for (const p of peopleRes.data ?? []) {
+        names[p.id] = p.full_name;
+      }
 
-      setByUser(Object.values(byUserMap).sort((a, b) => b.total_reached - a.total_reached));
+        const raw = entriesRes.data;
+
+        // Calculate unique users from entries (from user_id OR person_id)
+        const uniqueUserIds = new Set((raw || []).map(e => e.user_id || e.person_id).filter(Boolean));
+        const uniqueUsers = uniqueUserIds.size;
+
+        // Calculate aggregates
+        let reach = 0, resp = 0, invites = 0, conversations = 0, stories = 0, gospel = 0;
+        const byDate: Record<string, { reached: number; responses: number }> = {};
+        const byUserMap: Record<string, UserAgg> = {};
+
+        for (const e of raw || []) {
+          // Date aggregation
+          const d = e.entry_date;
+          if (!byDate[d]) byDate[d] = { reached: 0, responses: 0 };
+          byDate[d].reached += Number(e.number_reached) || 0;
+          byDate[d].responses += Number(e.number_response) || 0;
+
+          // Overall metrics
+          reach += Number(e.number_reached) || 0;
+          resp += Number(e.number_response) || 0;
+          if (e.church_invite) invites += Number(e.number_reached) || 0;
+          if (e.spiritual_conversation) conversations += Number(e.number_reached) || 0;
+          if (e.story_share) stories += Number(e.number_reached) || 0;
+          if (e.gospel_presentation) gospel += Number(e.number_reached) || 0;
+
+          // Use person_id if available, otherwise use user_id (as auth users are also people), otherwise anonymous
+          const personKey = e.person_id || e.user_id || "anonymous";
+
+          if (!byUserMap[personKey]) {
+            byUserMap[personKey] = {
+              user_id: personKey,
+              display_name: formatDisplayName(personKey, names),
+              entries: 0,
+              total_reached: 0,
+              total_responses: 0,
+              invites_reached: 0,
+              conversations_reached: 0,
+              story_share_reached: 0,
+              gospel_share_reached: 0,
+            };
+          }
+          byUserMap[personKey].entries++;
+          byUserMap[personKey].total_reached += Number(e.number_reached) || 0;
+          byUserMap[personKey].total_responses += Number(e.number_response) || 0;
+          if (e.church_invite) byUserMap[personKey].invites_reached += Number(e.number_reached) || 0;
+          if (e.spiritual_conversation) byUserMap[personKey].conversations_reached += Number(e.number_reached) || 0;
+          if (e.story_share) byUserMap[personKey].story_share_reached += Number(e.number_reached) || 0;
+          if (e.gospel_presentation) byUserMap[personKey].gospel_share_reached += Number(e.number_reached) || 0;
+        }
+
+        setOverall({
+          unique_users: uniqueUsers || 0,
+          entries: raw?.length || 0,
+          total_reached: reach,
+          total_responses: resp,
+          invites_reached: invites,
+          conversations_reached: conversations,
+          story_share_reached: stories,
+          gospel_share_reached: gospel,
+        });
+
+        setChartData(
+          Object.entries(byDate)
+            .map(([k, v]) => ({ date: k, ...v }))
+            .sort((a, b) => a.date.localeCompare(b.date))
+        );
+
+        setByUser(Object.values(byUserMap).sort((a, b) => b.total_reached - a.total_reached));
     }
-    load();
-  }, [range, rangeInfo, nameMap]);
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    window.location.href = "/";
-  };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [rangeInfo, reloadToken]);
 
   return (
     <>
@@ -212,8 +232,11 @@ export default function AdminDashboard() {
           <h1 className="text-2xl font-semibold">Admin Dashboard</h1>
         </div>
 
+      {/* A failed load must not render as community-wide zeros */}
+      <ErrorBanner message={error} onRetry={() => setReloadToken((t) => t + 1)} />
+
       {/* Date Range Selector */}
-      <DateRangeSelector value={range} onChange={setRange} />
+      <DateRangeSelector value={range} onChange={handleRangeChange} />
 
       {/* First Row: Unique Users, Total Reached, Total Responses */}
       <div className="grid gap-4 md:grid-cols-3 mb-6">
@@ -222,7 +245,7 @@ export default function AdminDashboard() {
             <CardTitle className="text-sm font-medium text-gray-600">Total People</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{overall.unique_users.toLocaleString()}</div>
+            <div className="text-3xl font-bold">{loading ? "…" : overall.unique_users.toLocaleString()}</div>
             <p className="text-xs text-gray-500">Unique users who logged shares</p>
           </CardContent>
         </Card>
@@ -231,7 +254,7 @@ export default function AdminDashboard() {
             <CardTitle className="text-sm font-medium text-gray-600">Total Reached</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{overall.total_reached.toLocaleString()}</div>
+            <div className="text-3xl font-bold">{loading ? "…" : overall.total_reached.toLocaleString()}</div>
           </CardContent>
         </Card>
         <Card>
@@ -239,7 +262,7 @@ export default function AdminDashboard() {
             <CardTitle className="text-sm font-medium text-gray-600">Total Responses</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{overall.total_responses.toLocaleString()}</div>
+            <div className="text-3xl font-bold">{loading ? "…" : overall.total_responses.toLocaleString()}</div>
           </CardContent>
         </Card>
       </div>
@@ -253,7 +276,7 @@ export default function AdminDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{overall.invites_reached.toLocaleString()}</div>
+            <div className="text-2xl font-bold">{loading ? "…" : overall.invites_reached.toLocaleString()}</div>
           </CardContent>
         </Card>
         <Card>
@@ -263,7 +286,7 @@ export default function AdminDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{overall.conversations_reached.toLocaleString()}</div>
+            <div className="text-2xl font-bold">{loading ? "…" : overall.conversations_reached.toLocaleString()}</div>
           </CardContent>
         </Card>
         <Card>
@@ -273,7 +296,7 @@ export default function AdminDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{overall.story_share_reached.toLocaleString()}</div>
+            <div className="text-2xl font-bold">{loading ? "…" : overall.story_share_reached.toLocaleString()}</div>
           </CardContent>
         </Card>
         <Card>
@@ -283,7 +306,7 @@ export default function AdminDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{overall.gospel_share_reached.toLocaleString()}</div>
+            <div className="text-2xl font-bold">{loading ? "…" : overall.gospel_share_reached.toLocaleString()}</div>
           </CardContent>
         </Card>
       </div>
@@ -294,7 +317,9 @@ export default function AdminDashboard() {
           <CardTitle className="text-lg font-medium">Reached + Responses Over Time</CardTitle>
         </CardHeader>
         <CardContent>
-          {chartData.length === 0 ? (
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : chartData.length === 0 ? (
             <p className="text-sm text-muted-foreground">No chart data for this range yet.</p>
           ) : (
             <div className="h-64">

@@ -31,6 +31,7 @@ import { RangeKey, Entry, Totals } from "@/lib/types";
 import { Loader2 } from "lucide-react";
 import { DateRangeSelector } from "@/components/ui/DateRangeSelector";
 import { EntryRecord } from "@/components/EntryRecord";
+import { ErrorBanner } from "@/components/ErrorBanner";
 
 const formatName = (name: string) =>
   name
@@ -201,18 +202,7 @@ function DashboardContent() {
         </div>
 
         {/* Surface load failures rather than rendering them as zeros */}
-        {(error || personError) && (
-          <div
-            role="alert"
-            className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800"
-          >
-            <p className="font-medium">Some data could not be loaded.</p>
-            <p className="mt-1">{error || personError}</p>
-            <Button variant="outline" className="mt-3" onClick={() => void loadEntries()}>
-              Try again
-            </Button>
-          </div>
-        )}
+        <ErrorBanner message={error || personError} onRetry={() => void loadEntries()} />
 
         {/* Date Range Selector */}
         <DateRangeSelector value={rangeKey} onChange={setRangeKey} />
