@@ -4,8 +4,12 @@
 **Reviewed:** 22 files / ~5,000 lines (`app/`, `components/`, `lib/`, `supabase/`), excluding
 `components/ui/` shadcn primitives.
 
-**Status:** migration `006_restrict_rls.sql` was applied to production on 2026-08-18 and verified.
-See the progress table below for what remains.
+**Status:** migration `006_restrict_rls.sql` was applied to production on 2026-08-18 and verified,
+including a **non-admin member session** — they see only their own person row and their own 14
+entries, cannot read anyone else's, can create/edit/delete their own, and are blocked from
+self-promoting (`Only admins can change a role`). That member's `people.id` does not match their
+auth id, so they resolve through the email fallback: an id-only policy would have shown them
+nothing. See the progress table below for what remains.
 
 Findings marked **[verified]** were reproduced against the running app or live database.
 Findings marked **[inferred]** are read from code and still need confirmation.
@@ -20,7 +24,7 @@ Findings marked **[inferred]** are read from code and still need confirmation.
 | 2 | Any user could edit/delete any person | **Fixed** |
 | 3 | Admin decided by user-writable metadata | **Fixed** — app and DB both use `people.role` |
 | 4 | `?person=` exposes other dashboards | **Fixed at the data layer** — non-admins now get no rows; an app-layer check is still worth adding |
-| 5 | Debug ids on Access Denied screen | **Fixed** |
+| 5 | Debug ids on Access Denied screen | **Fixed** — a fourth line (`isOwnProfile`) was missed on the first pass and removed 2026-08-18 |
 | 6 | Entry dates one day early | **Fixed** |
 | 7 | CSV export corrupt | **Fixed** |
 | 8 | Second broken CSV exporter | **Fixed** |

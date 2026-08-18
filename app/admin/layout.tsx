@@ -48,7 +48,6 @@ export default function AdminLayout({
         <div className="text-center">
           <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
           <p className="text-gray-600 mt-2">You don&apos;t have permission to view this page.</p>
-          <p className="text-gray-400 text-sm mt-1">isOwnProfile: {isOwnProfilePath ? "true" : "false"}</p>
         </div>
       </div>
     );
