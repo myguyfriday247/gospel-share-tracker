@@ -4,12 +4,17 @@ Personal-evangelism tracking app. Users log gospel-sharing encounters (invites, 
 story shares, gospel presentations); admins see community-wide analytics. **Live beta with real
 users** — treat schema/RLS changes and deploys with caution.
 
-> **2026-08-17:** the Supabase project briefly failed to resolve at DNS (confirmed via three
-> resolvers) — likely a transient pause/wake blip. Confirmed back up the same day: DNS resolves,
-> the `people` table is reachable, and `display_name_available` (migration 005) is live and
-> working. No action needed, but if this recurs, check the
-> [Supabase dashboard](https://supabase.com/dashboard/project/xomgejazpgwvadmglwtd) for project
-> status before assuming the app itself is broken.
+> **RLS was overhauled on 2026-08-18 (migration 006).** Before it, both tables were readable by
+> the `anon` role — i.e. by anyone with the public key from the JS bundle. Now:
+> reads and writes require authentication, entries and people are scoped to owner-or-admin,
+> admin comes from `people.role` only (never `user_metadata`, which users can write), and a
+> trigger blocks non-admins from changing any role. Helper functions are `gst_is_admin()` and
+> `gst_current_person_ids()` — the latter matches on **id or email**, which is load-bearing:
+> CSV-imported people keep a random `people.id` until first login re-keys it, so an id-only
+> check would lock them out of their own history.
+>
+> `is_admin(uuid)` also exists and backs policies on the legacy, app-unreferenced `profiles` and
+> `user_roles` tables. Don't confuse the two.
 
 ## Stack
 - **Framework:** Next.js 16 (App Router), React 19, TypeScript
@@ -42,7 +47,11 @@ codebase, likely leftover from an unbuilt email feature. Harmless to ignore.
   flags (`church_invite`, `spiritual_conversation`, `story_share`, `gospel_presentation`),
   `gospel_response`, `number_response`, `notes`, `created_at`
 
-## Known technical debt (see `CODE_REVIEW.md` for original notes)
+## Known technical debt (see `REVIEW.md` for the current audit; `CODE_REVIEW.md` is the older pass)
+- `user_id` on `gospel_share_entries` is a dead legacy column — all 675 rows are NULL and no code
+  writes it. Policies key off `person_id`. Safe to drop once confirmed.
+- The live schema still has five columns in no migration and no type: `invites_reached`,
+  `conversations_reached`, `story_share_reached`, `gospel_share_reached`, `responses_count`.
 - Error handling is inconsistent — some flows use `alert()`, others inline error messages.
 - Some `any` types remain in admin chart data.
 

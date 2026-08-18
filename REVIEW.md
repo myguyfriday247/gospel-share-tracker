@@ -4,8 +4,8 @@
 **Reviewed:** 22 files / ~5,000 lines (`app/`, `components/`, `lib/`, `supabase/`), excluding
 `components/ui/` shadcn primitives.
 
-**Status: findings only — no application code has been changed.** The one artifact produced is a
-*drafted, unapplied* migration at `supabase/migrations/006_restrict_rls.sql`.
+**Status:** migration `006_restrict_rls.sql` was applied to production on 2026-08-18 and verified.
+See the progress table below for what remains.
 
 Findings marked **[verified]** were reproduced against the running app or live database.
 Findings marked **[inferred]** are read from code and still need confirmation.
@@ -14,12 +14,12 @@ Findings marked **[inferred]** are read from code and still need confirmation.
 
 | # | Finding | Status |
 |---|---|---|
-| 0 | **Editing any entry fails for everyone (HTTP 403)** | **Open** — found 2026-08-17, fixed by 006 |
-| 1 | Database readable by anyone | **Open** — fix drafted in `006_restrict_rls.sql`, not applied |
-| 1b | Any member can delete every entry in the system | **Open** — needs 006 |
-| 2 | Any user can edit/delete any person | **Open** — needs 006 |
-| 3 | Admin decided by user-writable metadata | **App fixed** — DB policy still needs 006 |
-| 4 | `?person=` exposes other dashboards | **Open** — no app-layer check yet; 006 closes it at the data layer |
+| 0 | **Editing any entry failed for everyone (HTTP 403)** | **Fixed** — 006 applied 2026-08-18, verified |
+| 1 | Database readable by anyone | **Fixed** — anon reads now return empty |
+| 1b | Any member could delete every entry in the system | **Fixed** |
+| 2 | Any user could edit/delete any person | **Fixed** |
+| 3 | Admin decided by user-writable metadata | **Fixed** — app and DB both use `people.role` |
+| 4 | `?person=` exposes other dashboards | **Fixed at the data layer** — non-admins now get no rows; an app-layer check is still worth adding |
 | 5 | Debug ids on Access Denied screen | **Fixed** |
 | 6 | Entry dates one day early | **Fixed** |
 | 7 | CSV export corrupt | **Fixed** |
