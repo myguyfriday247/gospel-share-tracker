@@ -117,24 +117,40 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
               </span>
             </div>
             
-            {/* Share types */}
+            {/* Share types — only the ones actually recorded. These pills used to render
+                unconditionally, so every card claimed all four regardless of the entry. The
+                row variant below has always guarded them; this now matches. */}
             <div className="flex flex-wrap gap-2">
-              <div className="flex items-center gap-2 px-2 py-1 bg-white rounded-md shadow-sm">
-                <Users className="h-4 w-4 text-blue-600" />
-                <span className="text-xs text-gray-600">Invite</span>
-              </div>
-              <div className="flex items-center gap-2 px-2 py-1 bg-white rounded-md shadow-sm">
-                <MessageSquare className="h-4 w-4 text-purple-600" />
-                <span className="text-xs text-gray-600">Conv</span>
-              </div>
-              <div className="flex items-center gap-2 px-2 py-1 bg-white rounded-md shadow-sm">
-                <BookOpen className="h-4 w-4 text-green-600" />
-                <span className="text-xs text-gray-600">Story</span>
-              </div>
-              <div className="flex items-center gap-2 px-2 py-1 bg-white rounded-md shadow-sm">
-                <Cross className="h-4 w-4 text-red-600" />
-                <span className="text-xs text-gray-600">Gospel</span>
-              </div>
+              {entry.church_invite && (
+                <div className="flex items-center gap-2 px-2 py-1 bg-white rounded-md shadow-sm">
+                  <Users className="h-4 w-4 text-blue-600" />
+                  <span className="text-xs text-gray-600">Invite</span>
+                </div>
+              )}
+              {entry.spiritual_conversation && (
+                <div className="flex items-center gap-2 px-2 py-1 bg-white rounded-md shadow-sm">
+                  <MessageSquare className="h-4 w-4 text-purple-600" />
+                  <span className="text-xs text-gray-600">Conv</span>
+                </div>
+              )}
+              {entry.story_share && (
+                <div className="flex items-center gap-2 px-2 py-1 bg-white rounded-md shadow-sm">
+                  <BookOpen className="h-4 w-4 text-green-600" />
+                  <span className="text-xs text-gray-600">Story</span>
+                </div>
+              )}
+              {entry.gospel_presentation && (
+                <div className="flex items-center gap-2 px-2 py-1 bg-white rounded-md shadow-sm">
+                  <Cross className="h-4 w-4 text-red-600" />
+                  <span className="text-xs text-gray-600">Gospel</span>
+                </div>
+              )}
+              {!entry.church_invite &&
+                !entry.spiritual_conversation &&
+                !entry.story_share &&
+                !entry.gospel_presentation && (
+                  <span className="text-xs text-gray-400">—</span>
+                )}
             </div>
             
             {/* Stats */}
