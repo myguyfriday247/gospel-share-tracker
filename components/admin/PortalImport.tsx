@@ -10,7 +10,8 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { errorMessage, reportError } from "@/lib/errors";
-import { emailMatchPattern, normalizeEmail } from "@/lib/email";
+import { normalizeEmail } from "@/lib/email";
+import { findOrCreatePersonByEmail } from "@/lib/people";
 import { parseCSVToObjects } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,6 +75,7 @@ export function PortalImport({ onImported }: PortalImportProps) {
       // reported `Successfully imported ${data.length} records` unconditionally — so an
       // import where every row failed still claimed success.
       let imported = 0;
+      let createdPeople = 0;
       const failures: string[] = [];
 
       if (importType === "people") {
@@ -100,23 +102,19 @@ export function PortalImport({ onImported }: PortalImportProps) {
             failures.push(`Row ${i + 2}: missing email`);
             continue;
           }
-          const { data: person, error: lookupError } = await supabase
-            .from("people")
-            .select("id")
-            // ILIKE with metacharacters escaped: case-insensitive like the other importer,
-            // but without `_` acting as a wildcard.
-            .ilike("email", emailMatchPattern(row.email))
-            .maybeSingle();
+          // Attach to the existing person, or create one — so a single entries file can
+          // cover both people already on file and people who are not yet.
+          const person = await findOrCreatePersonByEmail(row.email, row.full_name);
 
-          if (lookupError) {
-            reportError("portal: import entry lookup", lookupError);
-            failures.push(`Row ${i + 2} (${row.email}): ${lookupError.message}`);
+          if (person.error || !person.id) {
+            if (person.error) reportError("portal: resolve person", person.error);
+            failures.push(
+              `Row ${i + 2}: could not resolve ${row.email}` +
+                (person.error ? ` — ${person.error.message}` : "")
+            );
             continue;
           }
-          if (!person) {
-            failures.push(`Row ${i + 2}: no person with email ${row.email}`);
-            continue;
-          }
+          if (person.created) createdPeople++;
 
           // At least one share type, matching the add and edit forms.
           if (
@@ -151,7 +149,10 @@ export function PortalImport({ onImported }: PortalImportProps) {
         }
       }
 
-      setNotice(`Imported ${imported} of ${data.length} rows.`);
+      setNotice(
+        `Imported ${imported} of ${data.length} rows.` +
+          (createdPeople > 0 ? ` Created ${createdPeople} new ${createdPeople === 1 ? "person" : "people"}.` : "")
+      );
       if (failures.length > 0) {
         setError(
           `${failures.length} row(s) failed:\n` +

@@ -4,7 +4,8 @@ import { useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { parseCSVToObjects, toCSV, downloadCSV } from "@/lib/csv";
 import { errorMessage, reportError } from "@/lib/errors";
-import { emailMatchPattern, normalizeEmail } from "@/lib/email";
+import { normalizeEmail } from "@/lib/email";
+import { findOrCreatePersonByEmail } from "@/lib/people";
 import { toYMD } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -25,6 +26,8 @@ type ImportPreview = {
 type ImportResult = {
   success: boolean;
   imported: number;
+  /** People created because an entry referenced an email with no existing record. */
+  createdPeople?: number;
   errors: string[];
   failedRows: CSVRow[];
 };
@@ -122,6 +125,7 @@ export default function AdminImportPage() {
     const errors: string[] = [];
     const failedRows: CSVRow[] = [];
     let imported = 0;
+    let createdPeople = 0;
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -133,21 +137,22 @@ export default function AdminImportPage() {
         continue;
       }
 
-      // Look up person_id by email (case-insensitive)
-      const { data: people, error: lookupError } = await supabase
-        .from("people")
-        .select("id")
-        .ilike("email", emailMatchPattern(row.email))
-        .maybeSingle();
+      // Attach to the existing person, or create one. Previously an unknown email failed the
+      // row, so entries could only be loaded after a separate people import.
+      const person = await findOrCreatePersonByEmail(row.email, row.full_name);
 
-      if (lookupError || !people) {
-        errors.push(`Row ${i + 1}: Person not found for email "${row.email}"`);
+      if (person.error || !person.id) {
+        errors.push(
+          `Row ${i + 1}: could not resolve "${row.email}"` +
+            (person.error ? ` — ${person.error.message}` : "")
+        );
         failedRows.push(row);
         continue;
       }
+      if (person.created) createdPeople++;
 
       const entry = {
-        person_id: people.id,
+        person_id: person.id,
         entry_date: row.entry_date,
         number_reached: parseInt(row.number_reached) || 0,
         church_invite: row.church_invite === "true",
@@ -169,7 +174,7 @@ export default function AdminImportPage() {
       }
     }
 
-    return { success: errors.length === 0, imported, errors, failedRows };
+    return { success: errors.length === 0, imported, createdPeople, errors, failedRows };
   };
 
   // Handle import
@@ -255,7 +260,7 @@ export default function AdminImportPage() {
           <CardDescription>
             {importType === "people" 
               ? "CSV must have headers: email, full_name"
-              : "CSV must have headers: email, entry_date, number_reached, and at least one of church_invite, spiritual_conversation, story_share or gospel_presentation set to true (plus optional: gospel_response, number_response, notes)"}
+              : "CSV must have headers: email, entry_date, number_reached, and at least one of church_invite, spiritual_conversation, story_share or gospel_presentation set to true (plus optional: full_name, gospel_response, number_response, notes). An email with no existing record creates a new person — include full_name to name them, otherwise the part before the @ is used."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -339,6 +344,13 @@ export default function AdminImportPage() {
           <CardContent>
             <p className="mb-4">
               <strong>{result.imported}</strong> rows imported successfully
+              {result.createdPeople ? (
+                <>
+                  {" · "}
+                  <strong>{result.createdPeople}</strong> new{" "}
+                  {result.createdPeople === 1 ? "person" : "people"} created
+                </>
+              ) : null}
               {result.errors.length > 0 && (
                 <>; <strong>{result.errors.length}</strong> errors</>
               )}
