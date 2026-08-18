@@ -29,7 +29,8 @@ export function ErrorBanner({
       className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800"
     >
       <p className="font-medium">{title}</p>
-      <p className="mt-1 break-words">{message}</p>
+      {/* pre-line so multi-line detail (e.g. a list of failed import rows) stays readable */}
+      <p className="mt-1 break-words whitespace-pre-line">{message}</p>
       {onRetry && (
         <Button variant="outline" className="mt-3" onClick={onRetry}>
           Try again

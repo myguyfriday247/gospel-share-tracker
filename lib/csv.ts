@@ -19,13 +19,20 @@ export function csvCell(value: unknown): string {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-/** Serialize rows to CSV text. Columns default to the keys of the first row. */
+/**
+ * Serialize rows to CSV text.
+ *
+ * Columns default to the union of keys across ALL rows, not just the first. Taking them from
+ * row 0 silently dropped every field the first row happened not to have — the portal's "export
+ * all" concatenates people and entries, so entries were written under people's five headers
+ * and lost all their data.
+ */
 export function toCSV(
   rows: Record<string, unknown>[],
   headers?: string[]
 ): string {
   if (rows.length === 0) return "";
-  const cols = headers ?? Object.keys(rows[0]);
+  const cols = headers ?? [...new Set(rows.flatMap((r) => Object.keys(r)))];
   return [
     cols.map(csvCell).join(","),
     ...rows.map((row) => cols.map((c) => csvCell(row[c])).join(",")),

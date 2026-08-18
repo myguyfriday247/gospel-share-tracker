@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { errorMessage, reportError } from "@/lib/errors";
+import { useCurrentPerson } from "@/hooks/useCurrentPerson";
+import { ErrorBanner } from "@/components/ErrorBanner";
 import { toCSV, downloadCSV, parseCSVToObjects } from "@/lib/csv";
 import { toYMD } from "@/lib/date";
 import Header from "@/components/Header";
@@ -50,7 +53,11 @@ type ActiveSection = "people" | "export" | "import";
 
 export default function AdminPortalPage() {
   const [activeSection, setActiveSection] = useState<ActiveSection>("people");
-  const [currentUserId, setCurrentUserId] = useState<string>("");
+  const { person: currentPerson } = useCurrentPerson();
+  const currentUserId = currentPerson?.id ?? "";
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   // Export state
   const [exportLoading, setExportLoading] = useState(false);
@@ -61,7 +68,7 @@ export default function AdminPortalPage() {
   // Import state
   const [importLoading, setImportLoading] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
-  const [importPreview, setImportPreview] = useState<any[]>([]);
+  const [importPreview, setImportPreview] = useState<Record<string, string>[]>([]);
   const [importType, setImportType] = useState<"people" | "entries">("entries");
 
   // People table state
@@ -88,26 +95,9 @@ export default function AdminPortalPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
-    async function getCurrentUser() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data: personData } = await supabase
-          .from("people")
-          .select("id")
-          .eq("email", session.user.email)
-          .single();
-        if (personData) {
-          setCurrentUserId(personData.id);
-        }
-      }
-    }
-    getCurrentUser();
-  }, []);
+    let active = true;
 
-  useEffect(() => {
     async function fetchPeople() {
-      setPeopleLoading(true);
-
       let query = supabase
         .from("people")
         .select("*", { count: "exact" })
@@ -121,29 +111,33 @@ export default function AdminPortalPage() {
       const to = from + peoplePageSize - 1;
       query = query.range(from, to);
 
-      const { data, error, count } = await query;
+      const { data, error: fetchError, count } = await query;
 
-      if (error) {
-        console.error("Error fetching people:", error);
-        setPeopleLoading(false);
+      if (!active) return;
+      setPeopleLoading(false);
+
+      if (fetchError) {
+        reportError("portal: load people", fetchError);
+        setError(errorMessage(fetchError));
         return;
       }
 
-      // Fetch auth metadata to get actual roles
-      const peopleWithRoles = await Promise.all((data || []).map(async (person) => {
-        // Try to get role from auth metadata
-        const { data: authData } = await supabase.auth.admin.getUserById(person.id).catch(() => ({ data: null }));
-        const role = authData?.user?.user_metadata?.role || person.role || "user";
-        return { ...person, role };
-      }));
-
-      setPeople(peopleWithRoles);
+      // Roles come straight from people.role. This previously called
+      // supabase.auth.admin.getUserById() once per row to read user_metadata.role — an
+      // endpoint that needs the service role key, so with the browser's anon key every one
+      // of those returned 401 (measured: 10 failed requests per page load). The result was
+      // discarded and it fell back to person.role anyway. user_metadata is also
+      // user-writable, so it must not decide a role in the first place.
+      setError(null);
+      setPeople(data || []);
       setPeopleTotal(count || 0);
-      setPeopleLoading(false);
     }
 
     fetchPeople();
-  }, [peoplePage, peoplePageSize, peopleSearch, sortColumn, sortDirection]);
+    return () => {
+      active = false;
+    };
+  }, [peoplePage, peoplePageSize, peopleSearch, sortColumn, sortDirection, reloadToken]);
 
   const handleSort = (column: string) => {
     if (sortColumn === column) {
@@ -191,31 +185,24 @@ export default function AdminPortalPage() {
     }
 
     setEditDialogOpen(false);
-    // Refresh list
-    setPeopleLoading(true);
-    const { data } = await supabase
-      .from("people")
-      .select("*")
-      .order(sortColumn, { ascending: sortDirection === "asc" })
-      .range(peoplePage * peoplePageSize, (peoplePage + 1) * peoplePageSize - 1);
-    setPeople(data || []);
-    setPeopleLoading(false);
+    setReloadToken((t) => t + 1);
   };
 
   const handleToggleRole = async (person: Person) => {
     const newRole = person.role === "admin" ? "user" : "admin";
-    const { error } = await supabase
+    const { error: roleError } = await supabase
       .from("people")
       .update({ role: newRole })
       .eq("id", person.id);
 
-    if (error) {
-      console.error("Error toggling role:", error);
-      alert("Error: " + error.message);
+    if (roleError) {
+      reportError("portal: toggle role", roleError);
+      setError(errorMessage(roleError));
       return;
     }
 
-    setPeople(people.map(p => 
+    setError(null);
+    setPeople(people.map(p =>
       p.id === person.id ? { ...p, role: newRole } : p
     ));
   };
@@ -229,19 +216,21 @@ export default function AdminPortalPage() {
     if (!deletingPerson) return;
     setDeleteLoading(true);
 
-    const { error } = await supabase
+    const { error: deleteError } = await supabase
       .from("people")
       .delete()
       .eq("id", deletingPerson.id);
 
     setDeleteLoading(false);
+    setDeleteDialogOpen(false);
 
-    if (error) {
-      alert("Error deleting: " + error.message);
+    if (deleteError) {
+      reportError("portal: delete person", deleteError);
+      setError(errorMessage(deleteError));
       return;
     }
 
-    setDeleteDialogOpen(false);
+    setError(null);
     setPeople(people.filter(p => p.id !== deletingPerson.id));
   };
 
@@ -250,40 +239,52 @@ export default function AdminPortalPage() {
   // ==================== EXPORT FUNCTIONS ====================
   const handleExport = async () => {
     setExportLoading(true);
+    setError(null);
+    setNotice(null);
     try {
-      let data: any[] = [];
-      
+      let data: Record<string, unknown>[] = [];
+
       if (exportType === "people" || exportType === "all") {
-        const { data: peopleData } = await supabase.from("people").select("*").order("created_at", { ascending: false });
+        const { data: peopleData, error: peopleError } = await supabase
+          .from("people").select("*").order("created_at", { ascending: false });
+        if (peopleError) throw peopleError;
         if (peopleData) {
-          data = exportType === "all" ? [...data, ...peopleData.map(p => ({ ...p, _table: "people" }))] : peopleData;
+          data = exportType === "all"
+            ? [...data, ...peopleData.map(p => ({ ...p, _table: "people" }))]
+            : peopleData;
         }
       }
-      
+
       if (exportType === "entries" || exportType === "all") {
         let query = supabase.from("gospel_share_entries").select("*").order("entry_date", { ascending: false });
         if (exportDateFrom) query = query.gte("entry_date", exportDateFrom);
         if (exportDateTo) query = query.lte("entry_date", exportDateTo);
-        const { data: entriesData } = await query;
+        const { data: entriesData, error: entriesError } = await query;
+        if (entriesError) throw entriesError;
         if (entriesData) {
-          data = exportType === "all" ? [...data, ...entriesData.map(e => ({ ...e, _table: "entries" }))] : entriesData;
+          data = exportType === "all"
+            ? [...data, ...entriesData.map(e => ({ ...e, _table: "entries" }))]
+            : entriesData;
         }
       }
-      
+
       if (data.length === 0) {
-        alert("No data to export");
+        setNotice("No data to export for this selection.");
         setExportLoading(false);
         return;
       }
-      
-      const headers = Object.keys(data[0]).filter(k => k !== "_table");
+
+      // Union across all rows: an "all" export mixes people and entries, which have
+      // different columns. Reading headers off data[0] alone dropped the other table's fields.
+      const headers = [...new Set(data.flatMap((r) => Object.keys(r)))].filter(k => k !== "_table");
       downloadCSV(
         `gospel-share-${exportType}-${toYMD(new Date())}.csv`,
         toCSV(data, headers)
       );
-
-    } catch (error: any) {
-      alert("Export failed: " + error.message);
+      setNotice(`Exported ${data.length} rows.`);
+    } catch (err) {
+      reportError("portal: export", err);
+      setError(errorMessage(err));
     }
     setExportLoading(false);
   };
@@ -298,9 +299,11 @@ export default function AdminPortalPage() {
     reader.onload = (event) => {
       const rows = parseCSVToObjects(event.target?.result as string);
       if (rows.length === 0) {
-        alert("Invalid CSV format");
+        setError("That file has no readable rows. Expected a CSV with a header row.");
+        setImportPreview([]);
         return;
       }
+      setError(null);
       setImportPreview(rows.slice(0, 5));
     };
     reader.readAsText(file);
@@ -308,55 +311,98 @@ export default function AdminPortalPage() {
 
   const handleImport = async () => {
     if (!importFile) {
-      alert("Please select a file first");
+      setError("Choose a file first.");
       return;
     }
-    
+
     setImportLoading(true);
+    setError(null);
+    setNotice(null);
     try {
       const data = parseCSVToObjects(await importFile.text());
       
+      // Every row's result is checked. This previously ignored each row's error and then
+      // reported `Successfully imported ${data.length} records` unconditionally — so an
+      // import where every row failed still claimed success.
+      let imported = 0;
+      const failures: string[] = [];
+
       if (importType === "people") {
-        for (const row of data) {
-          if (row.email) {
-            await supabase.from("people").upsert({
-              email: row.email.toLowerCase(),
-              full_name: row.full_name || row.name || "",
-            }, { onConflict: "email" });
+        for (const [i, row] of data.entries()) {
+          if (!row.email) {
+            failures.push(`Row ${i + 2}: missing email`);
+            continue;
+          }
+          const { error: upsertError } = await supabase.from("people").upsert({
+            email: row.email.toLowerCase(),
+            full_name: row.full_name || row.name || "",
+          }, { onConflict: "email" });
+
+          if (upsertError) {
+            reportError("portal: import person", upsertError);
+            failures.push(`Row ${i + 2} (${row.email}): ${upsertError.message}`);
+          } else {
+            imported++;
           }
         }
       } else if (importType === "entries") {
-        for (const row of data) {
-          if (row.email) {
-            const { data: person } = await supabase
-              .from("people")
-              .select("id")
-              .eq("email", row.email.toLowerCase())
-              .single();
-            
-            if (person) {
-              await supabase.from("gospel_share_entries").insert({
-                person_id: person.id,
-                entry_date: row.entry_date,
-                number_reached: parseInt(row.number_reached) || 0,
-                church_invite: row.church_invite === "true",
-                spiritual_conversation: row.spiritual_conversation === "true",
-                story_share: row.story_share === "true",
-                gospel_presentation: row.gospel_presentation === "true",
-                gospel_response: row.gospel_response === "true",
-                number_response: parseInt(row.number_response) || 0,
-                notes: row.notes || null,
-              });
-            }
+        for (const [i, row] of data.entries()) {
+          if (!row.email) {
+            failures.push(`Row ${i + 2}: missing email`);
+            continue;
+          }
+          const { data: person, error: lookupError } = await supabase
+            .from("people")
+            .select("id")
+            .eq("email", row.email.toLowerCase())
+            .maybeSingle();
+
+          if (lookupError) {
+            reportError("portal: import entry lookup", lookupError);
+            failures.push(`Row ${i + 2} (${row.email}): ${lookupError.message}`);
+            continue;
+          }
+          if (!person) {
+            failures.push(`Row ${i + 2}: no person with email ${row.email}`);
+            continue;
+          }
+
+          const { error: insertError } = await supabase.from("gospel_share_entries").insert({
+            person_id: person.id,
+            entry_date: row.entry_date,
+            number_reached: parseInt(row.number_reached) || 0,
+            church_invite: row.church_invite === "true",
+            spiritual_conversation: row.spiritual_conversation === "true",
+            story_share: row.story_share === "true",
+            gospel_presentation: row.gospel_presentation === "true",
+            gospel_response: row.gospel_response === "true",
+            number_response: parseInt(row.number_response) || 0,
+            notes: row.notes || null,
+          });
+
+          if (insertError) {
+            reportError("portal: import entry", insertError);
+            failures.push(`Row ${i + 2} (${row.email}): ${insertError.message}`);
+          } else {
+            imported++;
           }
         }
       }
-      
-      alert(`Successfully imported ${data.length} records`);
+
+      setNotice(`Imported ${imported} of ${data.length} rows.`);
+      if (failures.length > 0) {
+        setError(
+          `${failures.length} row(s) failed:\n` +
+          failures.slice(0, 10).join("\n") +
+          (failures.length > 10 ? `\n…and ${failures.length - 10} more.` : "")
+        );
+      }
       setImportFile(null);
       setImportPreview([]);
-    } catch (error: any) {
-      alert("Import failed: " + error.message);
+      setReloadToken((t) => t + 1);
+    } catch (err) {
+      reportError("portal: import", err);
+      setError(errorMessage(err));
     }
     setImportLoading(false);
   };
@@ -366,6 +412,26 @@ export default function AdminPortalPage() {
       <Header currentPage="portal" />
       
       <div className="container mx-auto py-6 px-4">
+        {/* Failures and outcomes, replacing the alert() dialogs this page used to use */}
+        {notice && (
+          <div
+            role="status"
+            className="mb-4 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800"
+          >
+            {notice}
+          </div>
+        )}
+        <div className="mb-4">
+          <ErrorBanner
+            message={error}
+            title="Something didn't complete."
+            onRetry={() => {
+              setError(null);
+              setReloadToken((t) => t + 1);
+            }}
+          />
+        </div>
+
         {/* Admin Tools Cards */}
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
           {/* Manage People & Users */}
@@ -640,7 +706,7 @@ export default function AdminPortalPage() {
                       <tbody>
                         {importPreview.map((row, i) => (
                           <tr key={i} className="border-t">
-                            {Object.values(row).map((v: any, j) => (
+                            {Object.values(row).map((v, j) => (
                               <td key={j} className="px-3 py-2">{v}</td>
                             ))}
                           </tr>
