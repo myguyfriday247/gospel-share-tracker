@@ -32,7 +32,7 @@ Findings marked **[inferred]** are read from code and still need confirmation.
 | 10 | Race creating duplicate person rows | **Fixed** |
 | 11 | Errors discarded | **Fixed** — all pages; the 10 `alert()`s are gone |
 | 12–14 | Schema drift, dual key, stale types | **Partial** — types now match the live table; the five extra columns turned out to be GENERATED (see below); `user_id` confirmed dead (0/674); baseline migration still to do |
-| 15–18 | Efficiency | **Partial** — #15, #16, #17 done; #18 (browser-side aggregation) still open |
+| 15–18 | Efficiency | **Fixed** — #18 moved to Postgres (migration 007): admin payload 159KB → 40KB, whole-table download gone |
 | P4 | Maintainability | **Partial** — all `any` types gone; portal still 700+ lines |
 
 A related bug found while fixing #6: `ShareForm` defaulted its date from `toISOString()` (UTC), so

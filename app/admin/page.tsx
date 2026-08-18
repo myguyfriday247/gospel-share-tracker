@@ -3,7 +3,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { errorMessage, reportError } from "@/lib/errors";
-import { fetchAllRows } from "@/lib/fetchAll";
 import Header from "@/components/Header";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,16 +36,36 @@ import { SortableHeader } from "@/components/ui/SortableHeader";
 import { getDateRange } from "@/lib/date";
 import { RangeKey, UserAgg, OverallAgg, ChartDataPoint, formatDisplayName } from "@/lib/types";
 
-interface AdminEntryRow {
-  entry_date: string;
-  number_reached: number | null;
-  number_response: number | null;
-  church_invite: boolean | null;
-  spiritual_conversation: boolean | null;
-  story_share: boolean | null;
-  gospel_presentation: boolean | null;
-  user_id: string | null;
-  person_id: string | null;
+// Shapes returned by the migration 007 aggregate functions. Postgres bigint arrives over
+// PostgREST as a string or number depending on size, so every numeric field is passed through
+// Number() at the call site.
+interface TotalsRow {
+  unique_people: number | string;
+  entry_count: number | string;
+  total_reached: number | string;
+  total_responses: number | string;
+  invites: number | string;
+  conversations: number | string;
+  stories: number | string;
+  gospel: number | string;
+}
+
+interface ByDateRow {
+  entry_day: string;
+  reached: number | string;
+  responses: number | string;
+}
+
+interface ByPersonRow {
+  person_key: string | null;
+  display_name: string;
+  entry_count: number | string;
+  total_reached: number | string;
+  total_responses: number | string;
+  invites: number | string;
+  conversations: number | string;
+  stories: number | string;
+  gospel: number | string;
 }
 
 export default function AdminDashboard() {
@@ -114,131 +133,70 @@ export default function AdminDashboard() {
 
   const rangeInfo = useMemo(() => getDateRange(range), [range]);
 
-  // People and entries load together in one pass. These were previously two effects, with the
-  // aggregation depending on nameMap — so every load fetched the whole entries table twice:
-  // once before names arrived and again after.
-  // Defined inside the effect and re-run via reloadToken, so the effect body itself never
-  // calls setState synchronously.
+  // Aggregation happens in Postgres (migration 007) rather than by downloading every matching
+  // row and reducing it here. Three small result sets replace one transfer that grew with the
+  // data. The functions run SECURITY INVOKER, so migration 006's RLS still applies.
   useEffect(() => {
     let active = true;
 
     async function load() {
       const { start, end } = rangeInfo;
+      const args = { p_start: start ?? null, p_end: end ?? null };
 
-      // Both reads paginate. These aggregates are computed in the browser over every matching
-      // row, so hitting PostgREST's max-rows would not error — it would quietly report
-      // smaller community-wide totals.
-      const [peopleRes, entriesRes] = await Promise.all([
-        fetchAllRows<{ id: string; full_name: string }>((from, to) =>
-          supabase.from("people").select("id, full_name", { count: "exact" }).range(from, to)
-        ),
-        fetchAllRows<AdminEntryRow>((from, to) => {
-          let q = supabase
-            .from("gospel_share_entries")
-            .select(
-              "entry_date,number_reached,number_response,church_invite,spiritual_conversation,story_share,gospel_presentation,user_id,person_id",
-              { count: "exact" }
-            );
-          if (start) q = q.gte("entry_date", start);
-          if (end) q = q.lte("entry_date", end);
-          return q.range(from, to);
-        }),
+      const [totalsRes, byDateRes, byPersonRes] = await Promise.all([
+        supabase.rpc("gst_entry_totals", args),
+        supabase.rpc("gst_entries_by_date", args),
+        supabase.rpc("gst_entries_by_person", args),
       ]);
 
       if (!active) return;
       setLoading(false);
 
-      if (peopleRes.error) {
-        reportError("admin dashboard: load people", peopleRes.error);
-        setError(errorMessage(peopleRes.error));
-        return;
-      }
-      if (entriesRes.error) {
-        reportError("admin dashboard: load entries", entriesRes.error);
-        setError(errorMessage(entriesRes.error));
-        return;
-      }
-      if (peopleRes.truncated || entriesRes.truncated) {
-        setError("Could not read every row, so these totals would be understated. Try again.");
+      const failed = totalsRes.error || byDateRes.error || byPersonRes.error;
+      if (failed) {
+        reportError("admin dashboard: aggregate", failed);
+        setError(errorMessage(failed));
         return;
       }
 
       setError(null);
 
-      const names: Record<string, string> = {};
-      for (const p of peopleRes.data) {
-        names[p.id] = p.full_name;
-      }
+      const t = (totalsRes.data as TotalsRow[] | null)?.[0];
+      setOverall({
+        unique_users: Number(t?.unique_people ?? 0),
+        entries: Number(t?.entry_count ?? 0),
+        total_reached: Number(t?.total_reached ?? 0),
+        total_responses: Number(t?.total_responses ?? 0),
+        invites_reached: Number(t?.invites ?? 0),
+        conversations_reached: Number(t?.conversations ?? 0),
+        story_share_reached: Number(t?.stories ?? 0),
+        gospel_share_reached: Number(t?.gospel ?? 0),
+      });
 
-        const raw = entriesRes.data;
+      setChartData(
+        ((byDateRes.data as ByDateRow[] | null) ?? []).map((r) => ({
+          date: r.entry_day,
+          reached: Number(r.reached),
+          responses: Number(r.responses),
+        }))
+      );
 
-        // Calculate unique users from entries (from user_id OR person_id)
-        const uniqueUserIds = new Set((raw || []).map(e => e.user_id || e.person_id).filter(Boolean));
-        const uniqueUsers = uniqueUserIds.size;
-
-        // Calculate aggregates
-        let reach = 0, resp = 0, invites = 0, conversations = 0, stories = 0, gospel = 0;
-        const byDate: Record<string, { reached: number; responses: number }> = {};
-        const byUserMap: Record<string, UserAgg> = {};
-
-        for (const e of raw || []) {
-          // Date aggregation
-          const d = e.entry_date;
-          if (!byDate[d]) byDate[d] = { reached: 0, responses: 0 };
-          byDate[d].reached += Number(e.number_reached) || 0;
-          byDate[d].responses += Number(e.number_response) || 0;
-
-          // Overall metrics
-          reach += Number(e.number_reached) || 0;
-          resp += Number(e.number_response) || 0;
-          if (e.church_invite) invites += Number(e.number_reached) || 0;
-          if (e.spiritual_conversation) conversations += Number(e.number_reached) || 0;
-          if (e.story_share) stories += Number(e.number_reached) || 0;
-          if (e.gospel_presentation) gospel += Number(e.number_reached) || 0;
-
-          // Use person_id if available, otherwise use user_id (as auth users are also people), otherwise anonymous
-          const personKey = e.person_id || e.user_id || "anonymous";
-
-          if (!byUserMap[personKey]) {
-            byUserMap[personKey] = {
-              user_id: personKey,
-              display_name: formatDisplayName(personKey, names),
-              entries: 0,
-              total_reached: 0,
-              total_responses: 0,
-              invites_reached: 0,
-              conversations_reached: 0,
-              story_share_reached: 0,
-              gospel_share_reached: 0,
-            };
-          }
-          byUserMap[personKey].entries++;
-          byUserMap[personKey].total_reached += Number(e.number_reached) || 0;
-          byUserMap[personKey].total_responses += Number(e.number_response) || 0;
-          if (e.church_invite) byUserMap[personKey].invites_reached += Number(e.number_reached) || 0;
-          if (e.spiritual_conversation) byUserMap[personKey].conversations_reached += Number(e.number_reached) || 0;
-          if (e.story_share) byUserMap[personKey].story_share_reached += Number(e.number_reached) || 0;
-          if (e.gospel_presentation) byUserMap[personKey].gospel_share_reached += Number(e.number_reached) || 0;
-        }
-
-        setOverall({
-          unique_users: uniqueUsers || 0,
-          entries: raw?.length || 0,
-          total_reached: reach,
-          total_responses: resp,
-          invites_reached: invites,
-          conversations_reached: conversations,
-          story_share_reached: stories,
-          gospel_share_reached: gospel,
-        });
-
-        setChartData(
-          Object.entries(byDate)
-            .map(([k, v]) => ({ date: k, ...v }))
-            .sort((a, b) => a.date.localeCompare(b.date))
-        );
-
-        setByUser(Object.values(byUserMap).sort((a, b) => b.total_reached - a.total_reached));
+      setByUser(
+        ((byPersonRes.data as ByPersonRow[] | null) ?? []).map((r) => ({
+          user_id: r.person_key ?? "anonymous",
+          display_name: formatDisplayName(
+            r.person_key ?? "anonymous",
+            r.person_key ? { [r.person_key]: r.display_name } : {}
+          ),
+          entries: Number(r.entry_count),
+          total_reached: Number(r.total_reached),
+          total_responses: Number(r.total_responses),
+          invites_reached: Number(r.invites),
+          conversations_reached: Number(r.conversations),
+          story_share_reached: Number(r.stories),
+          gospel_share_reached: Number(r.gospel),
+        }))
+      );
     }
 
     load();
