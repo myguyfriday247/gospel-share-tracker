@@ -6,18 +6,9 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from "@/components/ui/textarea";
-import { 
-  Users, 
-  MessageSquare, 
-  BookOpen, 
-  Cross,
-  Loader2
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { ShareFormFields } from "./ShareFormFields";
 
 interface ShareFormProps {
   personId: string;
@@ -111,112 +102,27 @@ export function ShareForm({
 
   return (
     <div className="space-y-4">
-      {/* Date */}
-      <div className="space-y-2">
-        <Label>Date</Label>
-        <Input 
-          type="date" 
-          value={entryDate} 
-          onChange={(e) => setEntryDate(e.target.value)}
-          disabled={loading}
-        />
-      </div>
-
-      {/* Share Types */}
-      <div className="space-y-2">
-        <Label>How Was the Gospel Shared?</Label>
-        <div className="flex flex-wrap gap-4">
-          <div className="flex items-center gap-2">
-            <Checkbox 
-              checked={churchInvite} 
-              onCheckedChange={(v) => setChurchInvite(!!v)}
-              disabled={loading}
-            />
-            <span className="flex items-center gap-1">
-              <Users className="h-4 w-4" /> Church Invitation
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox 
-              checked={spiritualConversation} 
-              onCheckedChange={(v) => setSpiritualConversation(!!v)}
-              disabled={loading}
-            />
-            <span className="flex items-center gap-1">
-              <MessageSquare className="h-4 w-4" /> Spiritual Conversation
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox 
-              checked={storyShare} 
-              onCheckedChange={(v) => setStoryShare(!!v)}
-              disabled={loading}
-            />
-            <span className="flex items-center gap-1">
-              <BookOpen className="h-4 w-4" /> Story Share
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox 
-              checked={gospelPresentation} 
-              onCheckedChange={(v) => setGospelPresentation(!!v)}
-              disabled={loading}
-            />
-            <span className="flex items-center gap-1">
-              <Cross className="h-4 w-4" /> Gospel Presentation
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Number Reached */}
-      <div className="space-y-2">
-        <Label>Number Reached</Label>
-        <Input
-          type="number"
-          min={0}
-          value={numberReached}
-          onChange={(e) => setNumberReached(parseInt(e.target.value) || 0)}
-          disabled={loading}
-        />
-      </div>
-
-      {/* Gospel Response */}
-      <div className="space-y-2">
-        <Label>Gospel Response?</Label>
-        <div className="flex items-center gap-2">
-          <Checkbox 
-            checked={gospelResponse} 
-            onCheckedChange={(v) => setGospelResponse(!!v)}
-            disabled={loading}
-          />
-          <span>Someone responded to the gospel</span>
-        </div>
-      </div>
-
-      {gospelResponse && (
-        <div className="space-y-2">
-          <Label>How Many Responded?</Label>
-          <Input
-            type="number"
-            min={1}
-            value={numberResponse}
-            onChange={(e) => setNumberResponse(parseInt(e.target.value) || 0)}
-            disabled={loading}
-          />
-        </div>
-      )}
-
-      {/* Notes */}
-      <div className="space-y-2">
-        <Label>Notes</Label>
-        <Textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Tell the story of how God used you..."
-          disabled={loading}
-        />
-      </div>
+      <ShareFormFields
+        entryDate={entryDate}
+        setEntryDate={setEntryDate}
+        numberReached={numberReached}
+        setNumberReached={setNumberReached}
+        churchInvite={churchInvite}
+        setChurchInvite={setChurchInvite}
+        spiritualConversation={spiritualConversation}
+        setSpiritualConversation={setSpiritualConversation}
+        storyShare={storyShare}
+        setStoryShare={setStoryShare}
+        gospelPresentation={gospelPresentation}
+        setGospelPresentation={setGospelPresentation}
+        gospelResponse={gospelResponse}
+        setGospelResponse={setGospelResponse}
+        numberResponse={numberResponse}
+        setNumberResponse={setNumberResponse}
+        notes={notes}
+        setNotes={setNotes}
+        disabled={loading}
+      />
 
       {/* Submit */}
       <div className="flex items-center gap-4">

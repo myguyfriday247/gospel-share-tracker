@@ -7,13 +7,10 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from "@/components/ui/textarea";
-import { Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Entry } from "@/lib/types";
 import { supabase } from "@/lib/supabaseClient";
+import { EditEntryFormContent } from "@/components/forms/EditEntryFormContent";
 import {
   Users,
   MessageSquare,
@@ -183,7 +180,6 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
               
               {editingEntry && (
                 <EditEntryFormContent
-                  entry={editingEntry}
                   entryDate={editingEntry.entry_date}
                   numberReached={editingEntry.number_reached}
                   churchInvite={editingEntry.church_invite}
@@ -204,7 +200,6 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
                   setGospelResponse={(v) => setEditingEntry({ ...editingEntry, gospel_response: v })}
                   setNumberResponse={(v) => setEditingEntry({ ...editingEntry, number_response: v })}
                   setNotes={(v) => setEditingEntry({ ...editingEntry, notes: v })}
-                  setMessage={setEditMessage}
                   onSubmit={handleEditSubmit}
                   onCancel={() => setEditDialogOpen(false)}
                 />
@@ -315,7 +310,6 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
             
             {editingEntry && (
               <EditEntryFormContent
-                entry={editingEntry}
                 entryDate={editingEntry.entry_date}
                 numberReached={editingEntry.number_reached}
                 churchInvite={editingEntry.church_invite}
@@ -336,7 +330,6 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
                 setGospelResponse={(v) => setEditingEntry({ ...editingEntry, gospel_response: v })}
                 setNumberResponse={(v) => setEditingEntry({ ...editingEntry, number_response: v })}
                 setNotes={(v) => setEditingEntry({ ...editingEntry, notes: v })}
-                setMessage={setEditMessage}
                 onSubmit={handleEditSubmit}
                 onCancel={() => setEditDialogOpen(false)}
               />
@@ -388,175 +381,5 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
         </Dialog.Portal>
       </Dialog.Root>
     </>
-  );
-}
-
-// Edit form content (shared between variants)
-function EditEntryFormContent({
-  entry,
-  entryDate,
-  numberReached,
-  churchInvite,
-  spiritualConversation,
-  storyShare,
-  gospelPresentation,
-  gospelResponse,
-  numberResponse,
-  notes,
-  message,
-  saving,
-  setEntryDate,
-  setNumberReached,
-  setChurchInvite,
-  setSpiritualConversation,
-  setStoryShare,
-  setGospelPresentation,
-  setGospelResponse,
-  setNumberResponse,
-  setNotes,
-  setMessage,
-  onSubmit,
-  onCancel,
-}: {
-  entry: Entry;
-  entryDate: string;
-  numberReached: number;
-  churchInvite: boolean;
-  spiritualConversation: boolean;
-  storyShare: boolean;
-  gospelPresentation: boolean;
-  gospelResponse: boolean;
-  numberResponse: number;
-  notes: string;
-  message: string | null;
-  saving: boolean;
-  setEntryDate: (v: string) => void;
-  setNumberReached: (v: number) => void;
-  setChurchInvite: (v: boolean) => void;
-  setSpiritualConversation: (v: boolean) => void;
-  setStoryShare: (v: boolean) => void;
-  setGospelPresentation: (v: boolean) => void;
-  setGospelResponse: (v: boolean) => void;
-  setNumberResponse: (v: number) => void;
-  setNotes: (v: string) => void;
-  setMessage: (v: string | null) => void;
-  onSubmit: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="space-y-4">
-      {/* Date */}
-      <div className="space-y-2">
-        <Label>Date</Label>
-        <Input
-          type="date"
-          value={entryDate}
-          onChange={(e) => setEntryDate(e.target.value)}
-          disabled={saving}
-        />
-      </div>
-
-      {/* Share Types */}
-      <div className="space-y-2">
-        <Label>How Was the Gospel Shared?</Label>
-        <div className="flex flex-wrap gap-4">
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={churchInvite}
-              onCheckedChange={(v) => setChurchInvite(!!v)}
-              disabled={saving}
-            />
-            <span className="text-sm">Invite</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={spiritualConversation}
-              onCheckedChange={(v) => setSpiritualConversation(!!v)}
-              disabled={saving}
-            />
-            <span className="text-sm">Conversation</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={storyShare}
-              onCheckedChange={(v) => setStoryShare(!!v)}
-              disabled={saving}
-            />
-            <span className="text-sm">Story</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={gospelPresentation}
-              onCheckedChange={(v) => setGospelPresentation(!!v)}
-              disabled={saving}
-            />
-            <span className="text-sm">Gospel</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Number Reached */}
-      <div className="space-y-2">
-        <Label>Number Reached</Label>
-        <Input
-          type="number"
-          min={0}
-          value={numberReached}
-          onChange={(e) => setNumberReached(parseInt(e.target.value) || 0)}
-          disabled={saving}
-        />
-      </div>
-
-      {/* Gospel Response */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <Checkbox
-            checked={gospelResponse}
-            onCheckedChange={(v) => setGospelResponse(!!v)}
-            disabled={saving}
-          />
-          <Label>Gospel Response?</Label>
-        </div>
-        {gospelResponse && (
-          <Input
-            type="number"
-            min={1}
-            placeholder="How many responded?"
-            value={numberResponse}
-            onChange={(e) => setNumberResponse(parseInt(e.target.value) || 0)}
-            disabled={saving}
-          />
-        )}
-      </div>
-
-      {/* Notes */}
-      <div className="space-y-2">
-        <Label>Notes</Label>
-        <Textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Tell the story..."
-          disabled={saving}
-        />
-      </div>
-
-      {message && <p className="text-sm text-center text-red-500">{message}</p>}
-
-      <div className="flex gap-2">
-        <Button onClick={onSubmit} disabled={saving} className="flex-1">
-          {saving ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            "Save Changes"
-          )}
-        </Button>
-        <Button variant="outline" onClick={onCancel} disabled={saving} className="flex-1">
-          Cancel
-        </Button>
-      </div>
-    </div>
   );
 }

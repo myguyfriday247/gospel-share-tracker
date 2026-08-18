@@ -43,8 +43,6 @@ codebase, likely leftover from an unbuilt email feature. Harmless to ignore.
   `gospel_response`, `number_response`, `notes`, `created_at`
 
 ## Known technical debt (see `CODE_REVIEW.md` for original notes)
-- `EntryRecord.tsx` has an inline `EditEntryFormContent` component that duplicates edit-form logic
-  — candidate for extraction, not yet done.
 - Error handling is inconsistent — some flows use `alert()`, others inline error messages.
 - Some `any` types remain in admin chart data.
 
@@ -54,6 +52,10 @@ codebase, likely leftover from an unbuilt email feature. Harmless to ignore.
 - Supabase client: `lib/supabaseClient.ts` — `supabase` for client-side (RLS-respecting) reads,
   `createAdminClient()` for server-side RLS bypass only
 - Shared types: `lib/types.ts`; date helpers: `lib/date.ts`
+- Share entry fields (date, share types, number reached, gospel response, notes) live in
+  `components/forms/ShareFormFields.tsx` — a controlled presentational component shared by
+  `ShareForm.tsx` (add, owns its own state + Supabase insert) and `EditEntryFormContent.tsx`
+  (edit, controlled by `EntryRecord.tsx`'s parent state). Add a field here, not in either consumer.
 
 ## Applying schema changes
 This app is **live with real users** — schema and RLS changes go against a production database
