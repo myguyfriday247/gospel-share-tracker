@@ -3,15 +3,33 @@
 -- Purpose: Close anonymous read access to all people and entries, and remove the
 --          privilege-escalation paths that let a user grant themselves admin.
 --
+-- Policy names below were taken from a live pg_policies dump on 2026-08-17, NOT from the
+-- other migration files — those were already proven stale (people.role appears in none of
+-- them). The live database carried 11 policies on gospel_share_entries; only 4 of them
+-- appear in 002.
+--
 -- BACKGROUND — what is wrong today:
---   1. `people` and `gospel_share_entries` both carry a `USING (true)` SELECT policy with no
---      role restriction, so the `anon` role can read them. Because the Supabase anon key ships
---      in the public JS bundle, every person row (name + email) and every entry (including
---      `notes`) is readable by anyone on the internet, with no login.
+--   1. `people` and `gospel_share_entries` both carry a `USING (true)` SELECT policy granted
+--      to PUBLIC, so the `anon` role can read them. Because the Supabase anon key ships in
+--      the public JS bundle, every person row (name + email) and every entry (including
+--      `notes`) is readable by anyone on the internet, with no login. Verified: 131 people,
+--      674 entries, 330 of them carrying notes.
 --   2. `people` carries `FOR ALL USING (auth.role() = 'authenticated')`, so any logged-in user
 --      can update or delete ANY person row — including setting their own `role` to 'admin'.
---   3. The admin policy on entries trusts `raw_user_meta_data->>'role'`, which users can write
---      themselves via supabase.auth.updateUser(). Admin is decided by `people.role` instead.
+--   3. "Allow authenticated inserts/deletes on gospel_share_entries" are `true` for any
+--      authenticated user, so any member can insert entries attributed to anyone, and delete
+--      EVERY entry in the system.
+--   4. Every policy keyed on `auth.uid() = user_id` is dead: all 675 entries have
+--      user_id IS NULL, because the app only ever writes person_id.
+--   5. Consequently the only surviving UPDATE policy is "Admins can manage all shares", which
+--      runs `SELECT 1 FROM auth.users` — a table the `authenticated` role cannot read. So
+--      **editing an entry currently fails for every user** with
+--      `42501: permission denied for table users`. Verified against production.
+--      Replacing these policies fixes that.
+--
+-- Note: `is_admin(uuid)` already exists and is used by policies on the legacy `profiles` and
+-- `user_roles` tables. It is left untouched; the helpers here are prefixed to avoid any
+-- ambiguity with it.
 --
 -- ROLLBACK: see the bottom of this file.
 
@@ -21,7 +39,7 @@
 
 -- Admin test. SECURITY DEFINER so it bypasses RLS on `people` — a policy ON people that
 -- SELECTs FROM people would otherwise recurse infinitely.
-CREATE OR REPLACE FUNCTION public.is_admin()
+CREATE OR REPLACE FUNCTION public.gst_is_admin()
 RETURNS boolean
 LANGUAGE sql
 STABLE
@@ -41,7 +59,7 @@ $$;
 -- CSV importer get a random `people.id`, and app/login/page.tsx re-keys that row to the auth
 -- id the first time they sign up. During that re-key the rows still carry the OLD id, so an
 -- id-only predicate would block the very migration step that adopts their history.
-CREATE OR REPLACE FUNCTION public.current_person_ids()
+CREATE OR REPLACE FUNCTION public.gst_current_person_ids()
 RETURNS SETOF uuid
 LANGUAGE sql
 STABLE
@@ -52,10 +70,10 @@ AS $$
   WHERE id = auth.uid() OR lower(email) = lower(auth.email());
 $$;
 
-REVOKE ALL ON FUNCTION public.is_admin() FROM public;
-REVOKE ALL ON FUNCTION public.current_person_ids() FROM public;
-GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.current_person_ids() TO authenticated;
+REVOKE ALL ON FUNCTION public.gst_is_admin() FROM public;
+REVOKE ALL ON FUNCTION public.gst_current_person_ids() FROM public;
+GRANT EXECUTE ON FUNCTION public.gst_is_admin() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.gst_current_person_ids() TO authenticated;
 
 -- ---------------------------------------------------------------------------
 -- people
@@ -70,7 +88,7 @@ CREATE POLICY "people_select_own_or_admin"
   USING (
     id = auth.uid()
     OR lower(email) = lower(auth.email())
-    OR public.is_admin()
+    OR public.gst_is_admin()
   );
 
 -- Insert: only a row keyed to yourself, and only as a plain user. Admins may insert anyone
@@ -79,7 +97,7 @@ CREATE POLICY "people_insert_self_or_admin"
   ON public.people FOR INSERT TO authenticated
   WITH CHECK (
     (id = auth.uid() AND coalesce(role, 'user') = 'user')
-    OR public.is_admin()
+    OR public.gst_is_admin()
   );
 
 -- Update: your own row (this is what the signup re-key needs), or anyone if admin.
@@ -89,18 +107,18 @@ CREATE POLICY "people_update_own_or_admin"
   USING (
     id = auth.uid()
     OR lower(email) = lower(auth.email())
-    OR public.is_admin()
+    OR public.gst_is_admin()
   )
   WITH CHECK (
     id = auth.uid()
     OR lower(email) = lower(auth.email())
-    OR public.is_admin()
+    OR public.gst_is_admin()
   );
 
 -- Delete: admins only.
 CREATE POLICY "people_delete_admin_only"
   ON public.people FOR DELETE TO authenticated
-  USING (public.is_admin());
+  USING (public.gst_is_admin());
 
 -- The UPDATE policy above necessarily lets a user write their own row, which would still let
 -- them set role='admin'. RLS cannot restrict individual columns, so guard it with a trigger.
@@ -111,7 +129,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  IF NEW.role IS DISTINCT FROM OLD.role AND NOT public.is_admin() THEN
+  IF NEW.role IS DISTINCT FROM OLD.role AND NOT public.gst_is_admin() THEN
     RAISE EXCEPTION 'Only admins can change a role';
   END IF;
   RETURN NEW;
@@ -127,10 +145,20 @@ CREATE TRIGGER people_guard_role
 -- gospel_share_entries
 -- ---------------------------------------------------------------------------
 
-DROP POLICY IF EXISTS "Anyone can view shares" ON public.gospel_share_entries;
-DROP POLICY IF EXISTS "Users can create their own shares" ON public.gospel_share_entries;
-DROP POLICY IF EXISTS "Users can update their own shares" ON public.gospel_share_entries;
-DROP POLICY IF EXISTS "Admins can manage all shares" ON public.gospel_share_entries;
+-- All 11 live policies, by their exact names from pg_policies. The four in 002 are only a
+-- subset; dropping just those would leave the `true` insert/delete catch-alls in place and
+-- the hole open while appearing to succeed.
+DROP POLICY IF EXISTS "Admins can manage all shares"                        ON public.gospel_share_entries;
+DROP POLICY IF EXISTS "Allow authenticated deletes on gospel_share_entries" ON public.gospel_share_entries;
+DROP POLICY IF EXISTS "Allow authenticated inserts on gospel_share_entries" ON public.gospel_share_entries;
+DROP POLICY IF EXISTS "Anyone can view shares"                              ON public.gospel_share_entries;
+DROP POLICY IF EXISTS "Users can create their own shares"                   ON public.gospel_share_entries;
+DROP POLICY IF EXISTS "Users can update their own shares"                   ON public.gospel_share_entries;
+DROP POLICY IF EXISTS "admins can read all gospel entries"                  ON public.gospel_share_entries;
+DROP POLICY IF EXISTS "users can delete own entries"                        ON public.gospel_share_entries;
+DROP POLICY IF EXISTS "users can insert own entries"                        ON public.gospel_share_entries;
+DROP POLICY IF EXISTS "users can read own entries"                          ON public.gospel_share_entries;
+DROP POLICY IF EXISTS "users can update own entries"                        ON public.gospel_share_entries;
 
 -- Note: the old INSERT/UPDATE policies gated on `auth.uid() = user_id`, but the application
 -- only ever writes `person_id` — `user_id` is a legacy column the app never populates. These
@@ -139,33 +167,33 @@ DROP POLICY IF EXISTS "Admins can manage all shares" ON public.gospel_share_entr
 CREATE POLICY "entries_select_own_or_admin"
   ON public.gospel_share_entries FOR SELECT TO authenticated
   USING (
-    person_id IN (SELECT public.current_person_ids())
-    OR public.is_admin()
+    person_id IN (SELECT public.gst_current_person_ids())
+    OR public.gst_is_admin()
   );
 
 CREATE POLICY "entries_insert_own_or_admin"
   ON public.gospel_share_entries FOR INSERT TO authenticated
   WITH CHECK (
-    person_id IN (SELECT public.current_person_ids())
-    OR public.is_admin()
+    person_id IN (SELECT public.gst_current_person_ids())
+    OR public.gst_is_admin()
   );
 
 CREATE POLICY "entries_update_own_or_admin"
   ON public.gospel_share_entries FOR UPDATE TO authenticated
   USING (
-    person_id IN (SELECT public.current_person_ids())
-    OR public.is_admin()
+    person_id IN (SELECT public.gst_current_person_ids())
+    OR public.gst_is_admin()
   )
   WITH CHECK (
-    person_id IN (SELECT public.current_person_ids())
-    OR public.is_admin()
+    person_id IN (SELECT public.gst_current_person_ids())
+    OR public.gst_is_admin()
   );
 
 CREATE POLICY "entries_delete_own_or_admin"
   ON public.gospel_share_entries FOR DELETE TO authenticated
   USING (
-    person_id IN (SELECT public.current_person_ids())
-    OR public.is_admin()
+    person_id IN (SELECT public.gst_current_person_ids())
+    OR public.gst_is_admin()
   );
 
 -- ---------------------------------------------------------------------------
@@ -181,9 +209,37 @@ CREATE POLICY "entries_delete_own_or_admin"
 -- DROP POLICY IF EXISTS "entries_insert_own_or_admin"  ON public.gospel_share_entries;
 -- DROP POLICY IF EXISTS "entries_update_own_or_admin"  ON public.gospel_share_entries;
 -- DROP POLICY IF EXISTS "entries_delete_own_or_admin"  ON public.gospel_share_entries;
--- DROP FUNCTION IF EXISTS public.current_person_ids();
--- DROP FUNCTION IF EXISTS public.is_admin();
+-- DROP FUNCTION IF EXISTS public.gst_current_person_ids();
+-- DROP FUNCTION IF EXISTS public.gst_is_admin();
+--
+-- -- Restores the exact policy set captured from pg_policies on 2026-08-17. Note this puts
+-- -- the anonymous-read exposure back, and re-breaks entry editing (see note 5 above), so it
+-- -- is a true revert rather than a desirable state.
 -- CREATE POLICY "People are viewable by everyone" ON public.people FOR SELECT USING (true);
 -- CREATE POLICY "Authenticated users can manage people" ON public.people FOR ALL
 --   USING (auth.role() = 'authenticated');
+--
 -- CREATE POLICY "Anyone can view shares" ON public.gospel_share_entries FOR SELECT USING (true);
+-- CREATE POLICY "Allow authenticated inserts on gospel_share_entries"
+--   ON public.gospel_share_entries FOR INSERT TO authenticated WITH CHECK (true);
+-- CREATE POLICY "Allow authenticated deletes on gospel_share_entries"
+--   ON public.gospel_share_entries FOR DELETE TO authenticated USING (true);
+-- CREATE POLICY "Users can create their own shares"
+--   ON public.gospel_share_entries FOR INSERT WITH CHECK (auth.uid() = user_id);
+-- CREATE POLICY "Users can update their own shares"
+--   ON public.gospel_share_entries FOR UPDATE USING (auth.uid() = user_id)
+--   WITH CHECK (auth.uid() = user_id);
+-- CREATE POLICY "users can read own entries"
+--   ON public.gospel_share_entries FOR SELECT USING (auth.uid() = user_id);
+-- CREATE POLICY "users can insert own entries"
+--   ON public.gospel_share_entries FOR INSERT WITH CHECK (auth.uid() = user_id);
+-- CREATE POLICY "users can update own entries"
+--   ON public.gospel_share_entries FOR UPDATE USING (auth.uid() = user_id);
+-- CREATE POLICY "users can delete own entries"
+--   ON public.gospel_share_entries FOR DELETE USING (auth.uid() = user_id);
+-- CREATE POLICY "admins can read all gospel entries"
+--   ON public.gospel_share_entries FOR SELECT USING (is_admin(auth.uid()));
+-- CREATE POLICY "Admins can manage all shares" ON public.gospel_share_entries FOR ALL
+--   USING (EXISTS (SELECT 1 FROM auth.users
+--                  WHERE auth.uid() = auth.users.id
+--                    AND auth.users.raw_user_meta_data->>'role' = 'admin'));

@@ -14,7 +14,9 @@ Findings marked **[inferred]** are read from code and still need confirmation.
 
 | # | Finding | Status |
 |---|---|---|
+| 0 | **Editing any entry fails for everyone (HTTP 403)** | **Open** — found 2026-08-17, fixed by 006 |
 | 1 | Database readable by anyone | **Open** — fix drafted in `006_restrict_rls.sql`, not applied |
+| 1b | Any member can delete every entry in the system | **Open** — needs 006 |
 | 2 | Any user can edit/delete any person | **Open** — needs 006 |
 | 3 | Admin decided by user-writable metadata | **App fixed** — DB policy still needs 006 |
 | 4 | `?person=` exposes other dashboards | **Open** — no app-layer check yet; 006 closes it at the data layer |
@@ -31,6 +33,22 @@ Findings marked **[inferred]** are read from code and still need confirmation.
 
 A related bug found while fixing #6: `ShareForm` defaulted its date from `toISOString()` (UTC), so
 after ~8pm Eastern it pre-filled *tomorrow* and silently misdated evening entries. Also fixed.
+
+### Finding #0 — entry editing is broken in production **[verified]**
+
+Reading the live `pg_policies` (rather than the migration files) turned up three things the files
+do not show. The live `gospel_share_entries` table carries **11** policies, not the 4 in `002`:
+
+- `Allow authenticated inserts…` (`WITH CHECK true`) and `Allow authenticated deletes…`
+  (`USING true`) let **any authenticated member delete every entry in the database**.
+- Every policy keyed on `auth.uid() = user_id` is dead — **all 675 entries have
+  `user_id IS NULL`**, because the app only ever writes `person_id`.
+- So the only UPDATE policy left standing is `Admins can manage all shares`, which runs
+  `SELECT 1 FROM auth.users` — a table the `authenticated` role cannot read.
+
+The result, reproduced against production: **every attempt to edit an entry fails** with
+`42501: permission denied for table users`. Insert and delete only work because of the two
+`true` catch-alls. Migration 006 fixes this as a side effect of keying policies on `person_id`.
 
 ---
 
