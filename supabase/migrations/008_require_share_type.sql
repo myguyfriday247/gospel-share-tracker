@@ -1,5 +1,6 @@
 -- Migration: require at least one share type on an entry
 -- Created: 2026-08-18
+-- Applied: 2026-08-18, verified enforcing on INSERT and UPDATE via the app's own path.
 -- Purpose: an entry that records no share type describes nothing. The add form has always
 --          rejected these, but the edit dialog and both CSV importers did not, so they could
 --          still be created. This makes the rule impossible to bypass.
