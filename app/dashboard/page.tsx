@@ -6,6 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { useCurrentPerson } from "@/hooks/useCurrentPerson";
 import { errorMessage, reportError } from "@/lib/errors";
+import { fetchAllRows } from "@/lib/fetchAll";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -68,18 +69,20 @@ function DashboardContent() {
     setLoadingEntries(true);
     setError(null);
 
-    let qAll = supabase
-      .from("gospel_share_entries")
-      .select("*")
-      .eq("person_id", targetPersonId)
-      .order("entry_date", { ascending: true })
-      .limit(5000);
-
-    if (range.start) qAll = qAll.gte("entry_date", range.start);
-    if (range.end) qAll = qAll.lte("entry_date", range.end);
-
+    // Paginated rather than .limit(5000): that limit sat above PostgREST's max-rows, so the
+    // server capped it anyway — and these rows feed the summary cards and chart, which would
+    // simply have shown smaller numbers with no error.
     const [allRes, recentRes] = await Promise.all([
-      qAll,
+      fetchAllRows<Entry>((from, to) => {
+        let q = supabase
+          .from("gospel_share_entries")
+          .select("*", { count: "exact" })
+          .eq("person_id", targetPersonId)
+          .order("entry_date", { ascending: true });
+        if (range.start) q = q.gte("entry_date", range.start);
+        if (range.end) q = q.lte("entry_date", range.end);
+        return q.range(from, to);
+      }),
       supabase
         .from("gospel_share_entries")
         .select("*")
@@ -92,7 +95,10 @@ function DashboardContent() {
       reportError("dashboard: load entries for range", allRes.error);
       setError(errorMessage(allRes.error));
     } else {
-      setAllEntries((allRes.data as Entry[]) ?? []);
+      if (allRes.truncated) {
+        setError("Some entries could not be loaded, so these totals may be low.");
+      }
+      setAllEntries(allRes.data);
     }
 
     if (recentRes.error) {

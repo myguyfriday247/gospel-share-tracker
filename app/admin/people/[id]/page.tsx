@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { errorMessage, reportError } from "@/lib/errors";
+import { fetchAllRows } from "@/lib/fetchAll";
 import { useCurrentPerson } from "@/hooks/useCurrentPerson";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { formatYMD } from "@/lib/date";
@@ -162,11 +163,16 @@ export default function PersonDetailPage() {
 
       setPerson(personData);
 
-      const entriesRes = await supabase
-        .from("gospel_share_entries")
-        .select("*")
-        .eq("person_id", personData.id)
-        .order("entry_date", { ascending: false });
+      // Paginated: this list is the person's whole history and is paginated client-side, so
+      // a max-rows cap would silently hide their older entries.
+      const entriesRes = await fetchAllRows<Entry>((from, to) =>
+        supabase
+          .from("gospel_share_entries")
+          .select("*", { count: "exact" })
+          .eq("person_id", personData.id)
+          .order("entry_date", { ascending: false })
+          .range(from, to)
+      );
 
       if (!active) return;
 
@@ -174,7 +180,10 @@ export default function PersonDetailPage() {
         reportError("person profile: load entries", entriesRes.error);
         setError(errorMessage(entriesRes.error));
       } else {
-        setEntries(entriesRes.data ?? []);
+        if (entriesRes.truncated) {
+          setError("Some of this person's entries could not be loaded.");
+        }
+        setEntries(entriesRes.data);
       }
 
       setLoading(false);
@@ -193,11 +202,14 @@ export default function PersonDetailPage() {
     const targetId = person?.id ?? personId;
     if (!targetId) return;
 
-    const { data, error: refreshError } = await supabase
-      .from("gospel_share_entries")
-      .select("*")
-      .eq("person_id", targetId)
-      .order("entry_date", { ascending: false });
+    const { data, error: refreshError } = await fetchAllRows<Entry>((from, to) =>
+      supabase
+        .from("gospel_share_entries")
+        .select("*", { count: "exact" })
+        .eq("person_id", targetId)
+        .order("entry_date", { ascending: false })
+        .range(from, to)
+    );
 
     if (refreshError) {
       reportError("person profile: refresh entries", refreshError);
@@ -205,7 +217,7 @@ export default function PersonDetailPage() {
       return;
     }
     setError(null);
-    setEntries((data as Entry[]) ?? []);
+    setEntries(data);
   }, [person?.id, personId]);
 
   const formatName = (name: string) => {

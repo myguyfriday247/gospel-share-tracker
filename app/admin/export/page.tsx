@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { toCSV, downloadCSV } from "@/lib/csv";
+import { fetchAllRows } from "@/lib/fetchAll";
 import { toYMD } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,9 +17,19 @@ export default function AdminExportPage() {
     setMessage("");
 
     try {
-      const { data, error } = await supabase.from(tableName).select("*");
+      // Paginated: a bare select() is capped at PostgREST's max-rows, which would silently
+      // export only the first page once either table outgrows it.
+      const { data, error, truncated } = await fetchAllRows<Record<string, unknown>>(
+        (from, to) =>
+          supabase.from(tableName).select("*", { count: "exact" }).range(from, to)
+      );
 
       if (error) throw error;
+      if (truncated) {
+        throw new Error(
+          `Only ${data.length} rows could be read from ${tableName}; the export was stopped rather than writing an incomplete file.`
+        );
+      }
 
       if (!data || data.length === 0) {
         setMessage(`No data found in ${tableName}`);

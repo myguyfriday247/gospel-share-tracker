@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { errorMessage, reportError } from "@/lib/errors";
+import { fetchAllRows } from "@/lib/fetchAll";
 import Header from "@/components/Header";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,6 +36,18 @@ import { Pagination } from "@/components/ui/Pagination";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { getDateRange } from "@/lib/date";
 import { RangeKey, UserAgg, OverallAgg, ChartDataPoint, formatDisplayName } from "@/lib/types";
+
+interface AdminEntryRow {
+  entry_date: string;
+  number_reached: number | null;
+  number_response: number | null;
+  church_invite: boolean | null;
+  spiritual_conversation: boolean | null;
+  story_share: boolean | null;
+  gospel_presentation: boolean | null;
+  user_id: string | null;
+  person_id: string | null;
+}
 
 export default function AdminDashboard() {
   const [range, setRange] = useState<RangeKey>("this_week");
@@ -112,16 +125,24 @@ export default function AdminDashboard() {
     async function load() {
       const { start, end } = rangeInfo;
 
-      let entryQ = supabase
-        .from("gospel_share_entries")
-        .select("entry_date,number_reached,number_response,church_invite,spiritual_conversation,story_share,gospel_presentation,user_id,person_id");
-
-      if (start) entryQ = entryQ.gte("entry_date", start);
-      if (end) entryQ = entryQ.lte("entry_date", end);
-
+      // Both reads paginate. These aggregates are computed in the browser over every matching
+      // row, so hitting PostgREST's max-rows would not error — it would quietly report
+      // smaller community-wide totals.
       const [peopleRes, entriesRes] = await Promise.all([
-        supabase.from("people").select("id, full_name"),
-        entryQ,
+        fetchAllRows<{ id: string; full_name: string }>((from, to) =>
+          supabase.from("people").select("id, full_name", { count: "exact" }).range(from, to)
+        ),
+        fetchAllRows<AdminEntryRow>((from, to) => {
+          let q = supabase
+            .from("gospel_share_entries")
+            .select(
+              "entry_date,number_reached,number_response,church_invite,spiritual_conversation,story_share,gospel_presentation,user_id,person_id",
+              { count: "exact" }
+            );
+          if (start) q = q.gte("entry_date", start);
+          if (end) q = q.lte("entry_date", end);
+          return q.range(from, to);
+        }),
       ]);
 
       if (!active) return;
@@ -137,11 +158,15 @@ export default function AdminDashboard() {
         setError(errorMessage(entriesRes.error));
         return;
       }
+      if (peopleRes.truncated || entriesRes.truncated) {
+        setError("Could not read every row, so these totals would be understated. Try again.");
+        return;
+      }
 
       setError(null);
 
       const names: Record<string, string> = {};
-      for (const p of peopleRes.data ?? []) {
+      for (const p of peopleRes.data) {
         names[p.id] = p.full_name;
       }
 

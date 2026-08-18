@@ -6,6 +6,7 @@ import { errorMessage, reportError } from "@/lib/errors";
 import { useCurrentPerson } from "@/hooks/useCurrentPerson";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { toCSV, downloadCSV, parseCSVToObjects } from "@/lib/csv";
+import { fetchAllRows } from "@/lib/fetchAll";
 import { toYMD } from "@/lib/date";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
@@ -244,28 +245,34 @@ export default function AdminPortalPage() {
     try {
       let data: Record<string, unknown>[] = [];
 
+      // Both reads are paginated — a bare select() stops at PostgREST's max-rows and would
+      // silently write a partial export once a table outgrows it.
       if (exportType === "people" || exportType === "all") {
-        const { data: peopleData, error: peopleError } = await supabase
-          .from("people").select("*").order("created_at", { ascending: false });
+        const { data: peopleData, error: peopleError, truncated } =
+          await fetchAllRows<Record<string, unknown>>((from, to) =>
+            supabase.from("people").select("*", { count: "exact" })
+              .order("created_at", { ascending: false }).range(from, to));
         if (peopleError) throw peopleError;
-        if (peopleData) {
-          data = exportType === "all"
-            ? [...data, ...peopleData.map(p => ({ ...p, _table: "people" }))]
-            : peopleData;
-        }
+        if (truncated) throw new Error("Could not read all people; export stopped rather than writing a partial file.");
+        data = exportType === "all"
+          ? [...data, ...peopleData.map(p => ({ ...p, _table: "people" }))]
+          : peopleData;
       }
 
       if (exportType === "entries" || exportType === "all") {
-        let query = supabase.from("gospel_share_entries").select("*").order("entry_date", { ascending: false });
-        if (exportDateFrom) query = query.gte("entry_date", exportDateFrom);
-        if (exportDateTo) query = query.lte("entry_date", exportDateTo);
-        const { data: entriesData, error: entriesError } = await query;
+        const { data: entriesData, error: entriesError, truncated } =
+          await fetchAllRows<Record<string, unknown>>((from, to) => {
+            let q = supabase.from("gospel_share_entries").select("*", { count: "exact" })
+              .order("entry_date", { ascending: false });
+            if (exportDateFrom) q = q.gte("entry_date", exportDateFrom);
+            if (exportDateTo) q = q.lte("entry_date", exportDateTo);
+            return q.range(from, to);
+          });
         if (entriesError) throw entriesError;
-        if (entriesData) {
-          data = exportType === "all"
-            ? [...data, ...entriesData.map(e => ({ ...e, _table: "entries" }))]
-            : entriesData;
-        }
+        if (truncated) throw new Error("Could not read all entries; export stopped rather than writing a partial file.");
+        data = exportType === "all"
+          ? [...data, ...entriesData.map(e => ({ ...e, _table: "entries" }))]
+          : entriesData;
       }
 
       if (data.length === 0) {
