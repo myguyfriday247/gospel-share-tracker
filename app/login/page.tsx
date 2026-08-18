@@ -4,6 +4,8 @@ import { useState, useEffect, Suspense } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { reportError } from "@/lib/errors";
+import { normalizeEmail } from "@/lib/email";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -153,12 +155,36 @@ function LoginForm() {
 
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data: existingPerson } = await supabase.from("people").select("id").eq("email", e).single();
-        if (existingPerson && existingPerson.id !== user.id) {
-          await supabase.from("gospel_share_entries").update({ person_id: user.id }).eq("person_id", existingPerson.id);
-          await supabase.from("people").update({ id: user.id }).eq("id", existingPerson.id);
-        } else if (!existingPerson) {
-          await supabase.from("people").insert({ id: user.id, email: e, full_name: name, role: "user" });
+        // Adopt any pre-existing (CSV-imported) record for this address. Done server-side in
+        // one transaction: since migration 006 the two client writes could not both satisfy
+        // the entries policy, so the old inline version would silently fail to carry a
+        // member's history over. It also checked neither error.
+        const { data: claimedId, error: claimError } = await supabase.rpc(
+          "gst_claim_person_on_signup"
+        );
+
+        if (claimError) {
+          reportError("signup: claim imported person", claimError);
+          setMessage(
+            "Your account was created, but we could not link your existing history. Please contact an admin."
+          );
+          setLoading(false);
+          return;
+        }
+
+        if (!claimedId) {
+          const { error: insertError } = await supabase
+            .from("people")
+            .insert({ id: user.id, email: normalizeEmail(e), full_name: name, role: "user" });
+
+          if (insertError) {
+            reportError("signup: create person", insertError);
+            setMessage(
+              "Your account was created, but setting up your profile failed. Please contact an admin."
+            );
+            setLoading(false);
+            return;
+          }
         }
       }
 

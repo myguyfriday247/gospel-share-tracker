@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { parseCSVToObjects, toCSV, downloadCSV } from "@/lib/csv";
 import { errorMessage, reportError } from "@/lib/errors";
+import { emailMatchPattern, normalizeEmail } from "@/lib/email";
 import { toYMD } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -61,6 +62,9 @@ export default function AdminImportPage() {
   };
 
   const validateEntryRow = (row: CSVRow): string | null => {
+    // Email is how an entry finds its person; without it the lookup ran with undefined and
+    // failed later as a misleading "Person not found".
+    if (!row.email) return "Missing email";
     if (!row.entry_date) return "Missing entry_date";
     if (!row.number_reached) return "Missing number_reached";
     // At least one share type, matching the add and edit forms.
@@ -93,7 +97,10 @@ export default function AdminImportPage() {
 
       const { error: insertError } = await supabase.from("people").upsert(
         {
-          email: row.email,
+          // Normalised: the upsert conflict target is the exact-case UNIQUE(email) index, so
+          // an unnormalised "Bob@x.com" would miss an existing "bob@x.com", attempt an
+          // insert, and then be rejected by the case-insensitive EXCLUDE constraint.
+          email: normalizeEmail(row.email),
           full_name: row.full_name,
         },
         { onConflict: "email" }
@@ -130,8 +137,8 @@ export default function AdminImportPage() {
       const { data: people, error: lookupError } = await supabase
         .from("people")
         .select("id")
-        .ilike("email", row.email)
-        .single();
+        .ilike("email", emailMatchPattern(row.email))
+        .maybeSingle();
 
       if (lookupError || !people) {
         errors.push(`Row ${i + 1}: Person not found for email "${row.email}"`);

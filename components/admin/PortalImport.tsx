@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { errorMessage, reportError } from "@/lib/errors";
+import { emailMatchPattern, normalizeEmail } from "@/lib/email";
 import { parseCSVToObjects } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -82,7 +83,7 @@ export function PortalImport({ onImported }: PortalImportProps) {
             continue;
           }
           const { error: upsertError } = await supabase.from("people").upsert({
-            email: row.email.toLowerCase(),
+            email: normalizeEmail(row.email),
             full_name: row.full_name || row.name || "",
           }, { onConflict: "email" });
 
@@ -102,7 +103,9 @@ export function PortalImport({ onImported }: PortalImportProps) {
           const { data: person, error: lookupError } = await supabase
             .from("people")
             .select("id")
-            .eq("email", row.email.toLowerCase())
+            // ILIKE with metacharacters escaped: case-insensitive like the other importer,
+            // but without `_` acting as a wildcard.
+            .ilike("email", emailMatchPattern(row.email))
             .maybeSingle();
 
           if (lookupError) {
