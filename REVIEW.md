@@ -33,7 +33,7 @@ Findings marked **[inferred]** are read from code and still need confirmation.
 | 11 | Errors discarded | **Fixed** — all pages; the 10 `alert()`s are gone |
 | 12–14 | Schema drift, dual key, stale types | **Partial** — types now match the live table; the five extra columns turned out to be GENERATED (see below); `user_id` confirmed dead (0/674); baseline migration still to do |
 | 15–18 | Efficiency | **Fixed** — #18 moved to Postgres (migration 007): admin payload 159KB → 40KB, whole-table download gone |
-| P4 | Maintainability | **Partial** — all `any` types gone; portal still 700+ lines |
+| P4 | Maintainability | **Fixed** — all `any` types gone; portal split 791 → 98 lines + three focused components |
 
 A related bug found while fixing #6: `ShareForm` defaulted its date from `toISOString()` (UTC), so
 after ~8pm Eastern it pre-filled *tomorrow* and silently misdated evening entries. Also fixed.
