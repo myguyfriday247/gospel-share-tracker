@@ -37,6 +37,30 @@ export interface Entry {
   number_response: number;
   notes: string | null;
   created_at?: string;
+
+  // ---- Columns that exist in the live table but nothing in the app writes ----
+  //
+  // These were previously absent from this interface even though 14 call sites use
+  // `select("*")`, so runtime rows carried fields the types denied. They are declared
+  // optional so `select("*")` results type-check, and marked here so no one mistakes them
+  // for live data.
+  //
+  // `user_id` is a dead legacy key: all rows are NULL and no code path sets it. RLS keys off
+  // `person_id`. The other five appear in no migration and no code — presumably an abandoned
+  // per-share-type breakdown, since the app derives those numbers by summing `number_reached`
+  // filtered by the boolean flags. Confirm they hold no data before dropping any of them.
+  /** @deprecated legacy — always NULL; use person_id */
+  user_id?: string | null;
+  /** @deprecated unused — not written or read anywhere in the app */
+  invites_reached?: number | null;
+  /** @deprecated unused */
+  conversations_reached?: number | null;
+  /** @deprecated unused */
+  story_share_reached?: number | null;
+  /** @deprecated unused */
+  gospel_share_reached?: number | null;
+  /** @deprecated unused */
+  responses_count?: number | null;
 }
 
 export interface UserAgg {

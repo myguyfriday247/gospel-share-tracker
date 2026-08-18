@@ -8,6 +8,7 @@ import { ErrorBanner } from "@/components/ErrorBanner";
 import { toCSV, downloadCSV, parseCSVToObjects } from "@/lib/csv";
 import { fetchAllRows } from "@/lib/fetchAll";
 import { toYMD } from "@/lib/date";
+import type { Person } from "@/lib/types";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,14 +42,6 @@ import {
   ArrowUpDown,
   X,
 } from "lucide-react";
-
-type Person = {
-  id: string;
-  email: string;
-  full_name: string;
-  created_at: string;
-  role?: string;
-};
 
 type ActiveSection = "people" | "export" | "import";
 
