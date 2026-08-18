@@ -45,13 +45,13 @@ LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
-AS $$
+AS $gst_is_admin$
   SELECT EXISTS (
     SELECT 1 FROM public.people
     WHERE (people.id = auth.uid() OR lower(people.email) = lower(auth.email()))
       AND people.role = 'admin'
   );
-$$;
+$gst_is_admin$;
 
 -- The person row(s) belonging to the caller.
 --
@@ -65,10 +65,10 @@ LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
-AS $$
+AS $gst_person_ids$
   SELECT id FROM public.people
   WHERE id = auth.uid() OR lower(email) = lower(auth.email());
-$$;
+$gst_person_ids$;
 
 REVOKE ALL ON FUNCTION public.gst_is_admin() FROM public;
 REVOKE ALL ON FUNCTION public.gst_current_person_ids() FROM public;
@@ -127,14 +127,14 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-AS $$
+AS $gst_role_guard$
 BEGIN
   IF NEW.role IS DISTINCT FROM OLD.role AND NOT public.gst_is_admin() THEN
     RAISE EXCEPTION 'Only admins can change a role';
   END IF;
   RETURN NEW;
 END;
-$$;
+$gst_role_guard$;
 
 DROP TRIGGER IF EXISTS people_guard_role ON public.people;
 CREATE TRIGGER people_guard_role
