@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { errorMessage, reportError } from "@/lib/errors";
+import { useCurrentPerson } from "@/hooks/useCurrentPerson";
+import { ErrorBanner } from "@/components/ErrorBanner";
 import { formatYMD } from "@/lib/date";
 import * as Dialog from "@radix-ui/react-dialog";
 import Header from "@/components/Header";
@@ -69,7 +72,11 @@ export default function PersonDetailPage() {
     }
   }, [entries.length, page, totalPages]);
   const [loading, setLoading] = useState(true);
-  const [currentUserId, setCurrentUserId] = useState<string>("");
+  const { person: currentPerson } = useCurrentPerson();
+  const currentUserId = currentPerson?.id ?? "";
+  const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   // Form state
   const [message, setMessage] = useState<string | null>(null);
@@ -102,69 +109,104 @@ export default function PersonDetailPage() {
   };
 
   useEffect(() => {
+    let active = true;
+
     async function fetchData() {
-      // Get current user
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        // Try by ID first
-        const { data: currentPerson } = await supabase
-          .from("people")
-          .select("id")
-          .eq("id", session.user.id)
-          .single();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user;
 
-        if (currentPerson) {
-          setCurrentUserId(currentPerson.id);
-        } else {
-          // Try by email
-          const { data: currentPersonByEmail } = await supabase
-            .from("people")
-            .select("id")
-            .eq("email", session.user.email)
-            .single();
-          if (currentPersonByEmail) {
-            setCurrentUserId(currentPersonByEmail.id);
-          }
-        }
-      }
-
-      // Fetch person by ID first
-      let { data: personData } = await supabase
+      const personRes = await supabase
         .from("people")
         .select("*")
         .eq("id", personId)
-        .single();
+        .maybeSingle();
 
-      // If not found by ID, try by email
-      if (!personData && session?.user) {
-        const { data: personByEmail } = await supabase
+      if (!active) return;
+
+      if (personRes.error) {
+        reportError("person profile: load person", personRes.error);
+        setError(errorMessage(personRes.error));
+        setLoading(false);
+        return;
+      }
+
+      let personData = personRes.data;
+
+      // Imported people keep a random people.id until login re-keys it, so a link built from
+      // the auth id can miss. Only fall back for exactly that case — the previous code fell
+      // back on ANY miss, which silently rendered the viewer's own profile under someone
+      // else's URL.
+      if (!personData && user && personId === user.id && user.email) {
+        const byEmail = await supabase
           .from("people")
           .select("*")
-          .eq("email", session.user.email)
-          .single();
-        personData = personByEmail;
+          .eq("email", user.email)
+          .maybeSingle();
+
+        if (!active) return;
+
+        if (byEmail.error) {
+          reportError("person profile: load person by email", byEmail.error);
+          setError(errorMessage(byEmail.error));
+          setLoading(false);
+          return;
+        }
+        personData = byEmail.data;
       }
 
-      if (personData) {
-        setPerson(personData);
+      if (!personData) {
+        setNotFound(true);
+        setLoading(false);
+        return;
       }
 
-      // Fetch entries for this person
-      const { data: entriesData } = await supabase
+      setPerson(personData);
+
+      const entriesRes = await supabase
         .from("gospel_share_entries")
         .select("*")
-        .eq("person_id", personData?.id || personId)
+        .eq("person_id", personData.id)
         .order("entry_date", { ascending: false });
 
-      if (entriesData) {
-        setEntries(entriesData);
+      if (!active) return;
+
+      if (entriesRes.error) {
+        reportError("person profile: load entries", entriesRes.error);
+        setError(errorMessage(entriesRes.error));
+      } else {
+        setEntries(entriesRes.data ?? []);
       }
 
       setLoading(false);
     }
 
     fetchData();
-  }, [personId]);
+    return () => {
+      active = false;
+    };
+  }, [personId, reloadToken]);
+
+  // One refresh path for the three places that reload this person's entries (edit, add,
+  // and the view dialog), each of which previously ran its own copy and dropped the error.
+  // Keys off the resolved person, not the URL id, which can differ for imported people.
+  const refreshEntries = useCallback(async () => {
+    const targetId = person?.id ?? personId;
+    if (!targetId) return;
+
+    const { data, error: refreshError } = await supabase
+      .from("gospel_share_entries")
+      .select("*")
+      .eq("person_id", targetId)
+      .order("entry_date", { ascending: false });
+
+    if (refreshError) {
+      reportError("person profile: refresh entries", refreshError);
+      setError(errorMessage(refreshError));
+      return;
+    }
+    setError(null);
+    setEntries((data as Entry[]) ?? []);
+  }, [person?.id, personId]);
 
   const formatName = (name: string) => {
     return name
@@ -217,16 +259,7 @@ export default function PersonDetailPage() {
       return;
     }
 
-    // Refresh entries
-    const { data: entriesData } = await supabase
-      .from("gospel_share_entries")
-      .select("*")
-      .eq("person_id", personId)
-      .order("entry_date", { ascending: false });
-
-    if (entriesData) {
-      setEntries(entriesData);
-    }
+    await refreshEntries();
 
     setEditDialogOpen(false);
     setMessage("Entry updated!");
@@ -246,15 +279,17 @@ export default function PersonDetailPage() {
     if (!deletingEntry) return;
     setDeleteLoading(true);
 
-    const { error } = await supabase
+    const { error: deleteError } = await supabase
       .from("gospel_share_entries")
       .delete()
       .eq("id", deletingEntry.id);
 
     setDeleteLoading(false);
 
-    if (error) {
-      alert("Error deleting: " + error.message);
+    if (deleteError) {
+      reportError("person profile: delete entry", deleteError);
+      setError(errorMessage(deleteError));
+      setDeleteDialogOpen(false);
       return;
     }
 
@@ -272,7 +307,28 @@ export default function PersonDetailPage() {
     );
   }
 
-  if (!person) {
+  // A failed load and a genuinely missing person are different outcomes; the page used to
+  // render "Person not found" for both.
+  if (error && !person) {
+    return (
+      <>
+        <Header currentPage="person" />
+        <div className="p-6 max-w-4xl mx-auto">
+          <ErrorBanner
+            message={error}
+            title="This profile could not be loaded."
+            onRetry={() => {
+              setError(null);
+              setLoading(true);
+              setReloadToken((t) => t + 1);
+            }}
+          />
+        </div>
+      </>
+    );
+  }
+
+  if (notFound || !person) {
     return (
       <>
         <Header currentPage="person" />
@@ -288,6 +344,15 @@ export default function PersonDetailPage() {
       <Header currentPage="person" />
       
       <div className="p-6 max-w-4xl mx-auto space-y-6">
+        {/* Failures after the person loaded — e.g. their entries */}
+        <ErrorBanner
+          message={error}
+          onRetry={() => {
+            setError(null);
+            setReloadToken((t) => t + 1);
+          }}
+        />
+
         {/* Person Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -320,18 +385,7 @@ export default function PersonDetailPage() {
         <CardContent>
           <ShareForm 
             personId={personId}
-            onSuccess={async () => {
-              // Refresh entries
-              const { data: entriesData } = await supabase
-                .from("gospel_share_entries")
-                .select("*")
-                .eq("person_id", personId)
-                .order("entry_date", { ascending: false });
-
-              if (entriesData) {
-                setEntries(entriesData);
-              }
-            }}
+            onSuccess={() => void refreshEntries()}
             onError={(msg) => setMessage(msg)}
             submitLabel="Add Share"
           />
@@ -585,18 +639,7 @@ export default function PersonDetailPage() {
             {viewingEntry && (
               <EntryRecord
                 entry={viewingEntry}
-                onUpdate={() => {
-                  // Refresh entries when edited/deleted
-                  const refresh = async () => {
-                    const { data } = await supabase
-                      .from("gospel_share_entries")
-                      .select("*")
-                      .eq("person_id", personId)
-                      .order("entry_date", { ascending: false });
-                    if (data) setEntries(data as Entry[]);
-                  };
-                  refresh();
-                }}
+                onUpdate={() => void refreshEntries()}
               />
             )}
 

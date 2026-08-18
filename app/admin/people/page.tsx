@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { errorMessage, reportError } from "@/lib/errors";
 import Header from "@/components/Header";
+import { ErrorBanner } from "@/components/ErrorBanner";
 import {
   Table,
   TableBody,
@@ -35,6 +37,8 @@ import { SortableHeader } from "@/components/ui/SortableHeader";
 export default function AdminPeoplePage() {
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
@@ -46,18 +50,14 @@ export default function AdminPeoplePage() {
   const totalPages = Math.ceil(totalCount / pageSize);
 
   useEffect(() => {
+    let active = true;
+
     async function fetchPeople() {
-      setLoading(true);
-      
-      // Get total count
       let countQuery = supabase.from("people").select("*", { count: "exact", head: true });
       if (search) {
         countQuery = countQuery.ilike("full_name", `%${search}%`);
       }
-      const { count } = await countQuery;
-      setTotalCount(count || 0);
 
-      // Get paginated data
       let query = supabase
         .from("people")
         .select("*")
@@ -68,19 +68,32 @@ export default function AdminPeoplePage() {
         query = query.ilike("full_name", `%${search}%`);
       }
 
-      const { data, error } = await query;
+      const [countRes, dataRes] = await Promise.all([countQuery, query]);
 
-      if (error) {
-        console.error("Error fetching people:", error);
-      } else {
-        setPeople(data || []);
+      if (!active) return;
+      setLoading(false);
+
+      if (countRes.error) {
+        reportError("people list: count", countRes.error);
+        setError(errorMessage(countRes.error));
+        return;
+      }
+      if (dataRes.error) {
+        reportError("people list: load page", dataRes.error);
+        setError(errorMessage(dataRes.error));
+        return;
       }
 
-      setLoading(false);
+      setError(null);
+      setTotalCount(countRes.count || 0);
+      setPeople(dataRes.data || []);
     }
 
     fetchPeople();
-  }, [page, pageSize, search, sortColumn, sortDirection]);
+    return () => {
+      active = false;
+    };
+  }, [page, pageSize, search, sortColumn, sortDirection, reloadToken]);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearch(e.target.value);
@@ -98,16 +111,23 @@ export default function AdminPeoplePage() {
 
   const handleToggleRole = async (personId: string, currentRole: string) => {
     const newRole = currentRole === "admin" ? "user" : "admin";
-    const { error } = await supabase
+    const { error: roleError } = await supabase
       .from("people")
       .update({ role: newRole })
       .eq("id", personId);
 
-    if (!error) {
-      setPeople(people.map(p => 
-        p.id === personId ? { ...p, role: newRole } : p
-      ));
+    // A failure here used to do nothing at all: the row simply didn't change and the admin
+    // got no indication why.
+    if (roleError) {
+      reportError("people list: toggle role", roleError);
+      setError(errorMessage(roleError));
+      return;
     }
+
+    setError(null);
+    setPeople(people.map(p =>
+      p.id === personId ? { ...p, role: newRole } : p
+    ));
   };
 
   const formatName = (name: string) => {
@@ -146,6 +166,10 @@ export default function AdminPeoplePage() {
           </Select>
         </div>
       </div>
+      </div>
+
+      <div className="mb-4">
+        <ErrorBanner message={error} onRetry={() => setReloadToken((t) => t + 1)} />
       </div>
 
       <div className="bg-white rounded-lg border">
