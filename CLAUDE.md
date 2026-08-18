@@ -52,8 +52,13 @@ codebase, likely leftover from an unbuilt email feature. Harmless to ignore.
   writes it. Policies key off `person_id`. Safe to drop once confirmed.
 - The live schema still has five columns in no migration and no type: `invites_reached`,
   `conversations_reached`, `story_share_reached`, `gospel_share_reached`, `responses_count`.
-- Error handling is inconsistent — some flows use `alert()`, others inline error messages.
-- Some `any` types remain in admin chart data.
+- Every entry must record at least one share type — enforced on the add form, the edit dialog,
+  both importers, and by a validated CHECK constraint (migrations 008/015).
+- Imported rows carry `import_key`, a fingerprint of the row plus its occurrence in the file, so
+  re-running an import skips rather than duplicates (migration 010). Entries created in the app
+  have no key and are deliberately unconstrained — members do log identical same-day encounters.
+- Notes from the February 2026 import were mojibake (UTF-8 read as Mac Roman); repaired in
+  migrations 011/014. If notes ever look like `God‚Äôs`, that is the same fault recurring.
 
 ## Conventions
 - Components: `components/` (app-specific) or `components/ui/` (shadcn primitives — don't hand-edit)
