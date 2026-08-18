@@ -14,6 +14,29 @@ export function toYMD(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+// Parse a YYYY-MM-DD string as a LOCAL date.
+//
+// `new Date("2026-08-18")` is parsed as UTC midnight, so rendering it with
+// toLocaleDateString() in any timezone behind UTC shows the *previous* day — in Eastern
+// time, "Aug 17". Building the Date from its parts keeps it local. Always use this for
+// `entry_date`, which is a bare date column with no time or zone.
+//
+// Values that aren't a bare YYYY-MM-DD (e.g. a full `created_at` timestamp) are passed
+// through to the normal Date parser, which handles them correctly already.
+export function parseYMD(value: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return new Date(value);
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+// Format a YYYY-MM-DD string for display, without the UTC off-by-one.
+export function formatYMD(
+  value: string,
+  options: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }
+): string {
+  return parseYMD(value).toLocaleDateString("en-US", options);
+}
+
 // Get start of day (midnight)
 export function startOfDay(d: Date): Date {
   const x = new Date(d);

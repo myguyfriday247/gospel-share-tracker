@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { formatYMD } from "@/lib/date";
 import * as Dialog from "@radix-ui/react-dialog";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
@@ -361,7 +362,7 @@ export default function PersonDetailPage() {
                 <TableBody>
                   {paginatedEntries.map((entry) => (
                     <TableRow key={entry.id}>
-                      <TableCell>{new Date(entry.entry_date).toLocaleDateString()}</TableCell>
+                      <TableCell>{formatYMD(entry.entry_date, {})}</TableCell>
                       <TableCell>
                         <div className="flex gap-1">
                           {entry.church_invite && <span className="text-xs bg-blue-100 px-1 rounded">Invite</span>}

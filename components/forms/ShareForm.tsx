@@ -8,6 +8,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { toYMD } from "@/lib/date";
 import { ShareFormFields } from "./ShareFormFields";
 
 interface ShareFormProps {
@@ -27,7 +28,8 @@ export function ShareForm({
   const [message, setMessage] = useState<string | null>(null);
 
   // Form state
-  const [entryDate, setEntryDate] = useState(() => new Date().toISOString().slice(0, 10));
+  // toYMD, not toISOString: the latter is UTC, so after ~8pm Eastern it pre-fills tomorrow.
+  const [entryDate, setEntryDate] = useState(() => toYMD(new Date()));
   const [numberReached, setNumberReached] = useState(0);
   const [churchInvite, setChurchInvite] = useState(false);
   const [spiritualConversation, setSpiritualConversation] = useState(false);
@@ -87,7 +89,7 @@ export function ShareForm({
     }
 
     // Reset form
-    setEntryDate(new Date().toISOString().slice(0, 10));
+    setEntryDate(toYMD(new Date()));
     setNumberReached(0);
     setChurchInvite(false);
     setSpiritualConversation(false);

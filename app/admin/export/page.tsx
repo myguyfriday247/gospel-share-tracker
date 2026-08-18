@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { toCSV, downloadCSV } from "@/lib/csv";
+import { toYMD } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -24,28 +26,8 @@ export default function AdminExportPage() {
         return;
       }
 
-      // Convert to CSV
-      const headers = Object.keys(data[0]);
-      const csvContent = [
-        headers.join(","),
-        ...data.map((row) =>
-          headers
-            .map((header) => {
-              const value = row[header];
-              if (value === null) return "";
-              if (typeof value === "object") return JSON.stringify(value);
-              return String(value).replace(/"/g, '""');
-            })
-            .join(",")
-        ),
-      ].join("\n");
-
-      // Download file
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = `${filename}_${new Date().toISOString().split("T")[0]}.csv`;
-      link.click();
+      const csvContent = toCSV(data);
+      downloadCSV(`${filename}_${toYMD(new Date())}.csv`, csvContent);
 
       setMessage(`Exported ${data.length} rows to ${filename}.csv`);
     } catch (error) {

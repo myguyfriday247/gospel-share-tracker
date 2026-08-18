@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { toCSV, downloadCSV, parseCSVToObjects } from "@/lib/csv";
+import { toYMD } from "@/lib/date";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -275,24 +277,11 @@ export default function AdminPortalPage() {
       }
       
       const headers = Object.keys(data[0]).filter(k => k !== "_table");
-      const csvContent = [
-        headers.join(","),
-        ...data.map(row => headers.map(h => {
-          const val = row[h];
-          if (val === null) return "";
-          if (typeof val === "string" && val.includes(",")) return `"${val}"`;
-          return val;
-        }).join(","))
-      ].join("\n");
-      
-      const blob = new Blob([csvContent], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `gospel-share-${exportType}-${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      
+      downloadCSV(
+        `gospel-share-${exportType}-${toYMD(new Date())}.csv`,
+        toCSV(data, headers)
+      );
+
     } catch (error: any) {
       alert("Export failed: " + error.message);
     }
@@ -307,18 +296,12 @@ export default function AdminPortalPage() {
     
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
-      const lines = text.trim().split("\n");
-      if (lines.length < 2) {
+      const rows = parseCSVToObjects(event.target?.result as string);
+      if (rows.length === 0) {
         alert("Invalid CSV format");
         return;
       }
-      const headers = lines[0].split(",").map(h => h.trim().replace(/"/g, ""));
-      const preview = lines.slice(1, 6).map(line => {
-        const values = line.split(",").map(v => v.trim().replace(/"/g, ""));
-        return Object.fromEntries(headers.map((h, i) => [h, values[i]]));
-      });
-      setImportPreview(preview);
+      setImportPreview(rows.slice(0, 5));
     };
     reader.readAsText(file);
   };
@@ -331,13 +314,7 @@ export default function AdminPortalPage() {
     
     setImportLoading(true);
     try {
-      const text = await importFile.text();
-      const lines = text.trim().split("\n");
-      const headers = lines[0].split(",").map(h => h.trim().replace(/"/g, ""));
-      const data = lines.slice(1).map(line => {
-        const values = line.split(",").map(v => v.trim().replace(/"/g, ""));
-        return Object.fromEntries(headers.map((h, i) => [h, values[i]]));
-      });
+      const data = parseCSVToObjects(await importFile.text());
       
       if (importType === "people") {
         for (const row of data) {

@@ -2,6 +2,8 @@
 
 import { useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { parseCSVToObjects } from "@/lib/csv";
+import { toYMD } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,23 +34,11 @@ export default function AdminImportPage() {
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
 
-  // Parse CSV file
+  // Parse CSV file (preview shows the first 10 rows; totalRows counts them all)
   const parseCSV = useCallback(async (f: File): Promise<ImportPreview> => {
-    const text = await f.text();
-    const lines = text.split("\n").filter((line) => line.trim());
-    const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
-    
-    const rows: CSVRow[] = [];
-    for (let i = 1; i < Math.min(lines.length, 11); i++) {
-      const values = lines[i].split(",").map((v) => v.trim().replace(/^"|"$/g, ""));
-      const row: CSVRow = {};
-      headers.forEach((header, index) => {
-        row[header] = values[index] || "";
-      });
-      rows.push(row);
-    }
-
-    return { headers, rows, totalRows: lines.length - 1 };
+    const all = parseCSVToObjects(await f.text());
+    const headers = all.length > 0 ? Object.keys(all[0]) : [];
+    return { headers, rows: all.slice(0, 10), totalRows: all.length };
   }, []);
 
   // Handle file selection
@@ -173,21 +163,7 @@ export default function AdminImportPage() {
     setResult(null);
 
     try {
-      const text = await file.text();
-      const lines = text.split("\n").filter((line) => line.trim());
-      const rows: CSVRow[] = [];
-      
-      // Skip header
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(",").map((v) => v.trim().replace(/^"|"$/g, ""));
-        const row: CSVRow = {};
-        if (preview && preview.headers) {
-          preview.headers.forEach((header, index) => {
-            row[header] = values[index] || "";
-          });
-        }
-        rows.push(row);
-      }
+      const rows: CSVRow[] = parseCSVToObjects(await file.text());
 
       const importResult = importType === "people" 
         ? await importPeople(rows) 
@@ -224,7 +200,7 @@ export default function AdminImportPage() {
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `failed_import_${new Date().toISOString().split("T")[0]}.csv`;
+    link.download = `failed_import_${toYMD(new Date())}.csv`;
     link.click();
   };
 

@@ -9,6 +9,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import { Entry } from "@/lib/types";
+import { formatYMD } from "@/lib/date";
 import { supabase } from "@/lib/supabaseClient";
 import { EditEntryFormContent } from "@/components/forms/EditEntryFormContent";
 import {
@@ -112,7 +113,7 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
             <div className="flex items-center gap-2">
               <Calendar className="h-5 w-5 text-gray-400" />
               <span className="text-sm font-medium">
-                {new Date(entry.entry_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                {formatYMD(entry.entry_date)}
               </span>
             </div>
             
@@ -260,7 +261,7 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
       <div className="flex items-start gap-4 p-3 bg-gray-50 rounded">
         {/* Date */}
         <div className="min-w-[80px] text-sm">
-          {new Date(entry.entry_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+          {formatYMD(entry.entry_date)}
         </div>
         
         {/* Share types */}
