@@ -115,6 +115,17 @@ export function PortalImport({ onImported }: PortalImportProps) {
             continue;
           }
 
+          // At least one share type, matching the add and edit forms.
+          if (
+            row.church_invite !== "true" &&
+            row.spiritual_conversation !== "true" &&
+            row.story_share !== "true" &&
+            row.gospel_presentation !== "true"
+          ) {
+            failures.push(`Row ${i + 2} (${row.email}): needs at least one share type`);
+            continue;
+          }
+
           const { error: insertError } = await supabase.from("gospel_share_entries").insert({
             person_id: person.id,
             entry_date: row.entry_date,

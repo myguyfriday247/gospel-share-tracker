@@ -66,9 +66,17 @@ export function ShareFormFields({
         />
       </div>
 
-      {/* Share Types */}
+      {/* Share Types — at least one is required; enforced on add, edit, import and by a
+          CHECK constraint on the table. */}
       <div className="space-y-2">
-        <Label>How Was the Gospel Shared?</Label>
+        <Label>
+          How Was the Gospel Shared?{" "}
+          <span className="text-red-600" aria-hidden="true">
+            *
+          </span>
+          <span className="sr-only">(required)</span>
+        </Label>
+        <p className="text-xs text-gray-500">Choose at least one.</p>
         <div className="flex flex-wrap gap-4">
           <div className="flex items-center gap-2">
             <Checkbox

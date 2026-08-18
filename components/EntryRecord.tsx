@@ -11,6 +11,7 @@ import { X } from "lucide-react";
 import { Entry } from "@/lib/types";
 import { formatYMD } from "@/lib/date";
 import { supabase } from "@/lib/supabaseClient";
+import { errorMessage, reportError } from "@/lib/errors";
 import { EditEntryFormContent } from "@/components/forms/EditEntryFormContent";
 import {
   Users,
@@ -37,6 +38,7 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
   // Delete dialog state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
 
   const handleEditClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -52,6 +54,19 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
   const handleEditSubmit = async () => {
     if (!editingEntry) return;
     setEditMessage(null);
+
+    // The add form has always required at least one share type; this path did not, so an
+    // edit could clear all four and save an entry that records nothing.
+    if (
+      !editingEntry.church_invite &&
+      !editingEntry.spiritual_conversation &&
+      !editingEntry.story_share &&
+      !editingEntry.gospel_presentation
+    ) {
+      setEditMessage("Please select at least one way the gospel was shared.");
+      return;
+    }
+
     setEditSaving(true);
 
     const { error } = await supabase
@@ -82,15 +97,17 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
 
   const handleDeleteConfirm = async () => {
     setDeleteLoading(true);
-    const { error } = await supabase
+    setDeleteMessage(null);
+    const { error: deleteError } = await supabase
       .from("gospel_share_entries")
       .delete()
       .eq("id", entry.id);
 
     setDeleteLoading(false);
 
-    if (error) {
-      alert("Error deleting: " + error.message);
+    if (deleteError) {
+      reportError("entry: delete", deleteError);
+      setDeleteMessage(errorMessage(deleteError));
       return;
     }
 
@@ -240,6 +257,9 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
               
               <div className="space-y-4">
                 <p>Are you sure you want to delete this share record?</p>
+                {deleteMessage && (
+                  <p className="text-sm text-red-600" role="alert">{deleteMessage}</p>
+                )}
                 
                 <div className="flex gap-2">
                   <Button 
@@ -370,6 +390,9 @@ export function EntryRecord({ entry, onUpdate, showActions = true, variant = "ca
             
             <div className="space-y-4">
               <p>Are you sure you want to delete this share record?</p>
+              {deleteMessage && (
+                <p className="text-sm text-red-600" role="alert">{deleteMessage}</p>
+              )}
               
               <div className="flex gap-2">
                 <Button 

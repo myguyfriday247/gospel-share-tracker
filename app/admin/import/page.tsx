@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { parseCSVToObjects } from "@/lib/csv";
+import { parseCSVToObjects, toCSV, downloadCSV } from "@/lib/csv";
+import { errorMessage, reportError } from "@/lib/errors";
 import { toYMD } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -62,6 +63,15 @@ export default function AdminImportPage() {
   const validateEntryRow = (row: CSVRow): string | null => {
     if (!row.entry_date) return "Missing entry_date";
     if (!row.number_reached) return "Missing number_reached";
+    // At least one share type, matching the add and edit forms.
+    if (
+      row.church_invite !== "true" &&
+      row.spiritual_conversation !== "true" &&
+      row.story_share !== "true" &&
+      row.gospel_presentation !== "true"
+    ) {
+      return "Needs at least one share type set to true (church_invite, spiritual_conversation, story_share or gospel_presentation)";
+    }
     return null;
   };
 
@@ -170,11 +180,12 @@ export default function AdminImportPage() {
         : await importEntries(rows);
 
       setResult(importResult);
-    } catch (error: any) {
+    } catch (err) {
+      reportError("import: parse or import", err);
       setResult({
         success: false,
         imported: 0,
-        errors: [error.message],
+        errors: [errorMessage(err)],
         failedRows: [],
       });
     }
@@ -186,22 +197,13 @@ export default function AdminImportPage() {
   const downloadFailedRows = () => {
     if (!result?.failedRows.length) return;
 
+    // Uses the shared writer: this had its own quoting that wrapped on comma but never
+    // escaped embedded quotes, so a failed row containing one produced a broken file.
     const headers = preview?.headers || [];
-    const csvContent = [
-      headers.join(","),
-      ...result.failedRows.map((row) =>
-        headers.map((h) => {
-          const value = row[h] || "";
-          return value.includes(",") ? `"${value}"` : value;
-        }).join(",")
-      ),
-    ].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `failed_import_${toYMD(new Date())}.csv`;
-    link.click();
+    downloadCSV(
+      `failed_import_${toYMD(new Date())}.csv`,
+      toCSV(result.failedRows, headers.length ? headers : undefined)
+    );
   };
 
   return (
@@ -246,7 +248,7 @@ export default function AdminImportPage() {
           <CardDescription>
             {importType === "people" 
               ? "CSV must have headers: email, full_name"
-              : "CSV must have headers: email, entry_date, number_reached (plus optional: church_invite, spiritual_conversation, story_share, gospel_presentation, gospel_response, number_response, notes)"}
+              : "CSV must have headers: email, entry_date, number_reached, and at least one of church_invite, spiritual_conversation, story_share or gospel_presentation set to true (plus optional: gospel_response, number_response, notes)"}
           </CardDescription>
         </CardHeader>
         <CardContent>
