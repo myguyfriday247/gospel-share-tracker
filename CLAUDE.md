@@ -16,6 +16,18 @@ users** — treat schema/RLS changes and deploys with caution.
 > `is_admin(uuid)` also exists and backs policies on the legacy, app-unreferenced `profiles` and
 > `user_roles` tables. Don't confuse the two.
 
+> **Signup adoption — read before touching the signup form (migrations 009/016).** Most `people`
+> rows come from CSV import and have no auth account at all; they are claimed on first signup by
+> `gst_claim_person_on_signup()`, which matches on **email** and re-keys `people.id`.
+> `display_name_available(p_name, p_email)` must be passed the email. Without it, every imported
+> member's own row reads as a name collision — that is guaranteed, since the import created the
+> row under their name — and the signup form bounces them to a password reset that silently does
+> nothing, because `resetPasswordForEmail()` stays quiet for an address with no account. Both ends
+> fail without an error; it surfaces as "I never get the reset email." That was live from February
+> to September 2026 and blocked 118 of 132 members (fixed in migration 016 and the `#3` copy on
+> the reset form). Anything that pre-creates `people` rows will collide with a signup-time
+> uniqueness check the same way.
+
 ## Stack
 - **Framework:** Next.js 16 (App Router), React 19, TypeScript
 - **Database:** Supabase (PostgreSQL) + Supabase Auth, project ref `xomgejazpgwvadmglwtd`
@@ -48,8 +60,8 @@ codebase, likely leftover from an unbuilt email feature. Harmless to ignore.
   `gospel_response`, `number_response`, `notes`, `created_at`
 
 ## Known technical debt (see `REVIEW.md` for the current audit; `CODE_REVIEW.md` is the older pass)
-- `user_id` on `gospel_share_entries` is a dead legacy column — all 675 rows are NULL and no code
-  writes it. Policies key off `person_id`. Safe to drop once confirmed.
+- `user_id` on `gospel_share_entries` is a dead legacy column — all 779 rows are NULL and no code
+  writes it (re-verified 2026-09-03). Policies key off `person_id`. Safe to drop once confirmed.
 - The live schema still has five columns in no migration and no type: `invites_reached`,
   `conversations_reached`, `story_share_reached`, `gospel_share_reached`, `responses_count`.
 - Every entry must record at least one share type — enforced on the add form, the edit dialog,
@@ -59,6 +71,11 @@ codebase, likely leftover from an unbuilt email feature. Harmless to ignore.
   have no key and are deliberately unconstrained — members do log identical same-day encounters.
 - Notes from the February 2026 import were mojibake (UTF-8 read as Mac Roman); repaired in
   migrations 011/014. If notes ever look like `God‚Äôs`, that is the same fault recurring.
+- `people` is 128 rows as of 2026-09-03. Four members had been imported under two addresses each,
+  leaving duplicate rows with the same `full_name`; migration 017 repointed the entries and
+  deleted the spares. Repoint before deleting — `person_id` is `ON DELETE SET NULL`, so the other
+  order nulls a member's history instead of moving it. The `backup` schema that migration created
+  has been dropped, so that merge is no longer reversible.
 
 ## Conventions
 - Components: `components/` (app-specific) or `components/ui/` (shadcn primitives — don't hand-edit)
