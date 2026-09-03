@@ -91,16 +91,28 @@ function LoginForm() {
         return;
       }
 
-      // Pre-check name availability
+      // Pre-check name availability, scoped to this address (migration 016). An imported
+      // member's own people row already holds their name — that is what
+      // gst_claim_person_on_signup() below adopts — so an unscoped check rejected exactly
+      // the people signup is meant to let through, and the old divert to "forgot" sent them
+      // to a reset form that no-ops for an address with no auth account.
       const { data: available, error: availErr } = await supabase.rpc(
         "display_name_available",
-        { p_name: name }
+        { p_name: name, p_email: normalizeEmail(e) }
       );
 
-      if (availErr || available === false) {
-        // Name is taken - user likely already has an account, switch to forgot password
-        setMessage(null);
-        setMode('forgot');
+      if (availErr) {
+        // A failed check is not evidence of anything; say so rather than rerouting.
+        reportError("signup: check display name", availErr);
+        setMessage("We could not check your name just now. Please try again.");
+        return;
+      }
+
+      if (available === false) {
+        // Scoped, so this is genuinely someone else's name, not the user's own record.
+        setMessage(
+          "Another member is already using that name. If this account is yours, go back and use \"Forgot password\" instead."
+        );
         return;
       }
 
