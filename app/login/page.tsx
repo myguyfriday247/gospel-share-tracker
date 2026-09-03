@@ -218,7 +218,11 @@ function LoginForm() {
         setMessage(error.message);
         return;
       }
-      setMessage("Check your email for a reset link.");
+      // Deliberately does not confirm whether the address has an account — Supabase keeps that
+      // quiet on purpose. It does tell them what silence means, which is what was missing.
+      setMessage(
+        "Check your email — if that address has a login, a reset link is on its way. If nothing arrives, you probably have not signed up yet."
+      );
       return;
     }
 
@@ -292,6 +296,28 @@ function LoginForm() {
           >
             <ChevronLeft className="h-4 w-4" /> Back to login
           </button>
+        )}
+
+        {/* A reset only does something for an address that already has a login. Most members
+            were added by the records import and have never signed up, and for an unknown
+            address resetPasswordForEmail() succeeds silently — it will not say the account is
+            missing, because that would let anyone test which addresses are registered. So the
+            screen has to say it, before they submit and wait on an email that is not coming.
+            This screen also had no route to signup at all: the login/signup toggle below is
+            hidden in forgot mode, leaving "Back to login" as the only way out. */}
+        {mode === "forgot" && (
+          <p className="text-sm text-muted-foreground">
+            This sends a link only if you already have a login. If you were added from our
+            records and have not signed up yet,{" "}
+            <button
+              type="button"
+              className="underline hover:text-foreground"
+              onClick={() => { setMode("signup"); setMessage(null); }}
+            >
+              create your account instead
+            </button>
+            {" "}— your existing entries will be waiting for you.
+          </p>
         )}
 
         {/* Name field (signup only) */}
